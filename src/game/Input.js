@@ -1,31 +1,46 @@
 /**
- * Keyboard + multitouch mobile controls.
- * Touch pads/buttons set axes; keyboard remains optional fallback.
+ * Keyboard + multitouch mobile controls (CTR / FlatOut arcade feel).
+ *
+ * Layout (landscape phone):
+ *  - LEFT: large virtual stick = STEER ONLY (X axis). Deadzone ~0.12.
+ *  - RIGHT: big GAS (hold), BRAKE, BOOST, FIRE (+ respawn).
+ *
+ * Steering sign (verified for chase cam behind car):
+ *  - Stick / pad RIGHT  → touchSteer > 0 → Car turns RIGHT on screen.
+ *  - Stick / pad LEFT   → touchSteer < 0 → Car turns LEFT on screen.
+ * Car.js maps +steer → negative yaw rate (Y-up right-hand), which is a
+ * clockwise turn when facing +Z = right turn from the chase camera.
+ * Do NOT flip here without flipping Car.js too (would double-invert).
+ *
+ * Lag: no input queues. Stick writes touchSteer immediately; Car.js uses
+ * a short exponential approach (~50–80 ms), not a sluggish lerp chain.
  */
 export class Input {
   constructor() {
     this.keys = new Set();
     this.mouseDown = false;
 
-    // Analog / digital touch state
-    this.touchSteer = 0; // -1 .. 1
-    this.touchThrottle = 0; // -1 .. 1 (brake negative)
+    this.touchSteer = 0; // -1 .. 1 (immediate)
+    this.touchThrottle = 0; // -1 .. 1
     this.touchBoost = false;
     this.touchFire = false;
     this.touchRespawn = false;
     this.pausePressed = false;
 
+    /** Smoothed steer fed to the car — light exp approach only. */
+    this._steerSmooth = 0;
+
     this.isTouch = this._detectTouch();
-    this._activePointers = new Map(); // pointerId -> control id
+    this._activePointers = new Map();
+    this._padLeft = false;
+    this._padRight = false;
 
     this._onKeyDown = (e) => {
       this.keys.add(e.code);
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
         e.preventDefault();
       }
-      if (e.code === 'Escape' || e.code === 'KeyP') {
-        this.pausePressed = true;
-      }
+      if (e.code === 'Escape' || e.code === 'KeyP') this.pausePressed = true;
     };
     this._onKeyUp = (e) => this.keys.delete(e.code);
     this._onMouseDown = (e) => {
@@ -40,7 +55,6 @@ export class Input {
     window.addEventListener('mousedown', this._onMouseDown);
     window.addEventListener('mouseup', this._onMouseUp);
 
-    // Prevent browser gestures on the whole page while playing
     document.addEventListener(
       'touchmove',
       (e) => {
@@ -53,6 +67,19 @@ export class Input {
 
     this._bindTouchUI();
     this._applyTouchVisibility();
+    this._loadSensitivity();
+  }
+
+  _loadSensitivity() {
+    try {
+      const raw = localStorage.getItem('ccr_progress_v1');
+      if (raw) {
+        const p = JSON.parse(raw);
+        const s = p?.settings?.sensitivity;
+        if (typeof s === 'number') window.__steerSensitivity = s;
+      }
+    } catch (_) {}
+    if (window.__steerSensitivity == null) window.__steerSensitivity = 1;
   }
 
   _detectTouch() {
@@ -70,9 +97,7 @@ export class Input {
       touchRoot.classList.toggle('visible', this.isTouch);
       touchRoot.setAttribute('aria-hidden', this.isTouch ? 'false' : 'true');
     }
-    if (hint) {
-      hint.classList.toggle('hidden-on-touch', this.isTouch);
-    }
+    if (hint) hint.classList.toggle('hidden-on-touch', this.isTouch);
     document.body.classList.toggle('touch-mode', this.isTouch);
   }
 
@@ -86,7 +111,7 @@ export class Input {
         e.preventDefault();
         e.stopPropagation();
         el.classList.add('active');
-        this._activePointers.set(e.pointerId, el.dataset.control);
+        this._activePointers.set(e.pointerId, el.dataset.control || el.id);
         try {
           el.setPointerCapture(e.pointerId);
         } catch (_) {}
@@ -97,14 +122,15 @@ export class Input {
         e.stopPropagation();
         el.classList.remove('active');
         this._activePointers.delete(e.pointerId);
+        try {
+          el.releasePointerCapture?.(e.pointerId);
+        } catch (_) {}
         onUp(e);
       };
       el.addEventListener('pointerdown', down);
       el.addEventListener('pointerup', up);
       el.addEventListener('pointercancel', up);
-      el.addEventListener('pointerleave', (e) => {
-        if (this._activePointers.has(e.pointerId)) up(e);
-      });
+      el.addEventListener('lostpointercapture', up);
     };
 
     const steerLeft = document.getElementById('btn-steer-left');
@@ -115,24 +141,33 @@ export class Input {
     const fire = document.getElementById('btn-fire');
     const respawn = document.getElementById('btn-respawn');
 
+    // Optional digital pads (hidden in CSS on phones favoring stick-only).
+    // Sign: left pad → negative steer → turn left on chase cam.
     bindHold(
       steerLeft,
       () => {
+        this._padLeft = true;
         this.touchSteer = -1;
       },
       () => {
-        if (this.touchSteer < 0) this.touchSteer = 0;
+        this._padLeft = false;
+        if (!this._padRight && !this._joyActive) this.touchSteer = 0;
+        else if (this._padRight) this.touchSteer = 1;
       }
     );
     bindHold(
       steerRight,
       () => {
+        this._padRight = true;
         this.touchSteer = 1;
       },
       () => {
-        if (this.touchSteer > 0) this.touchSteer = 0;
+        this._padRight = false;
+        if (!this._padLeft && !this._joyActive) this.touchSteer = 0;
+        else if (this._padLeft) this.touchSteer = -1;
       }
     );
+
     bindHold(
       gas,
       () => {
@@ -179,34 +214,57 @@ export class Input {
       }
     );
 
-    // Virtual joystick (optional overlay on left)
+    // —— Virtual stick: STEER X ONLY (ignore Y so gas isn't confused) ——
     const joy = document.getElementById('joystick');
     const joyKnob = document.getElementById('joystick-knob');
+    this._joyActive = false;
     if (joy && joyKnob) {
-      const radius = 54;
+      const DEADZONE = 0.12;
       let joyPointer = null;
+      let radius = 64;
+
+      const measure = () => {
+        const r = joy.getBoundingClientRect();
+        radius = Math.max(40, Math.min(r.width, r.height) * 0.5 - 4);
+      };
+
       const setKnob = (dx, dy) => {
+        // Clamp to circle for visuals, but ONLY X drives steer.
         const len = Math.hypot(dx, dy) || 1;
         const cl = Math.min(len, radius);
         const nx = (dx / len) * cl;
-        const ny = (dy / len) * cl;
+        const ny = (dy / len) * cl * 0.35; // flatten Y visually (steer-only)
         joyKnob.style.transform = `translate(${nx}px, ${ny}px)`;
-        this.touchSteer = THREE_clamp(nx / radius, -1, 1);
+
+        let raw = nx / radius; // -1..1, screen-right = positive
+        if (Math.abs(raw) < DEADZONE) raw = 0;
+        else {
+          // Remap deadzone out so the usable range still reaches ±1
+          const sign = Math.sign(raw);
+          raw = sign * ((Math.abs(raw) - DEADZONE) / (1 - DEADZONE));
+        }
+        // Stick right (+) → turn right. See file header.
+        this.touchSteer = clamp(raw, -1, 1);
       };
+
       const resetKnob = () => {
         joyKnob.style.transform = 'translate(0, 0)';
-        // only clear steer if pads not held
-        if (!steerLeft?.classList.contains('active') && !steerRight?.classList.contains('active')) {
-          this.touchSteer = 0;
-        }
+        this._joyActive = false;
+        if (!this._padLeft && !this._padRight) this.touchSteer = 0;
+        else if (this._padLeft) this.touchSteer = -1;
+        else if (this._padRight) this.touchSteer = 1;
       };
+
       joy.addEventListener('pointerdown', (e) => {
         e.preventDefault();
+        e.stopPropagation();
         joyPointer = e.pointerId;
+        this._joyActive = true;
         joy.classList.add('active');
         try {
           joy.setPointerCapture(e.pointerId);
         } catch (_) {}
+        measure();
         const rect = joy.getBoundingClientRect();
         setKnob(e.clientX - (rect.left + rect.width / 2), e.clientY - (rect.top + rect.height / 2));
       });
@@ -224,6 +282,7 @@ export class Input {
       };
       joy.addEventListener('pointerup', joyUp);
       joy.addEventListener('pointercancel', joyUp);
+      joy.addEventListener('lostpointercapture', joyUp);
     }
 
     const pauseBtn = document.getElementById('pause-btn');
@@ -238,7 +297,27 @@ export class Input {
     }
   }
 
-  /** Consume one-shot pause edge. */
+  /**
+   * Call once per frame. Applies light exponential approach (~60 ms feel)
+   * so steering is immediate but not 1-frame twitchy.
+   */
+  update(dt = 1 / 60) {
+    const target = this._rawSteer();
+    // tau ≈ 0.06 s → ~63% in 60 ms
+    const alpha = 1 - Math.exp(-dt / 0.055);
+    this._steerSmooth += (target - this._steerSmooth) * alpha;
+    if (Math.abs(this._steerSmooth) < 0.01 && Math.abs(target) < 0.01) this._steerSmooth = 0;
+  }
+
+  _rawSteer() {
+    const sens = window.__steerSensitivity || 1;
+    let v = 0;
+    if (Math.abs(this.touchSteer) > 0.02) v = this.touchSteer;
+    else if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) v = -1;
+    else if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) v = 1;
+    return clamp(v * sens, -1, 1);
+  }
+
   consumePause() {
     if (this.pausePressed) {
       this.pausePressed = false;
@@ -263,21 +342,15 @@ export class Input {
     return this.keys.has('KeyD') || this.keys.has('ArrowRight') || this.touchSteer > 0.2;
   }
 
-  /** Analog steer for smoother touch feel (-1..1). */
+  /** Analog steer for the car (-1..1). Prefer smoothed value. */
   get steerAxis() {
-    const sens = window.__steerSensitivity || 1;
-    let v = 0;
-    if (Math.abs(this.touchSteer) > 0.05) v = this.touchSteer;
-    else if (this.left && !this.right) v = -1;
-    else if (this.right && !this.left) v = 1;
-    return Math.max(-1, Math.min(1, v * sens));
+    return this._steerSmooth;
   }
 
-  /** Analog throttle (-1..1). */
   get throttleAxis() {
     if (Math.abs(this.touchThrottle) > 0.05) return this.touchThrottle;
     if (this.forward && !this.back) return 1;
-    if (this.back && !this.forward) return -0.7;
+    if (this.back && !this.forward) return -0.75;
     return 0;
   }
 
@@ -306,6 +379,6 @@ export class Input {
   }
 }
 
-function THREE_clamp(v, a, b) {
+function clamp(v, a, b) {
   return Math.max(a, Math.min(b, v));
 }

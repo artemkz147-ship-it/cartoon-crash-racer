@@ -106,7 +106,7 @@ export class Track {
     } else if (cfg.shape === 'tight') {
       for (let i = 0; i < n; i++) {
         const t = (i / n) * Math.PI * 2;
-        const wobble = 1 + 0.12 * Math.sin(t * 3);
+        const wobble = 1 + 0.1 * Math.sin(t * 2) + 0.04 * Math.sin(t * 3);
         pts.push({ x: Math.cos(t) * rx * wobble, z: Math.sin(t) * rz * wobble * 0.95, t });
       }
     } else if (cfg.shape === 'irregular') {
@@ -122,10 +122,12 @@ export class Track {
         pts.push({ x: Math.cos(t) * (rx * 0.35), z: Math.sin(t) * (rz * 0.35), t });
       }
     } else {
-      // oval / ellipse
+      // oval / ellipse with gentle sweeping chicanes (readable flow, not twitchy)
       for (let i = 0; i < n; i++) {
         const t = (i / n) * Math.PI * 2 - Math.PI / 2;
-        pts.push({ x: Math.cos(t) * rx, z: Math.sin(t) * rz, t });
+        // low-frequency pinch + slight phase offset → long esses, not hairpins
+        const sweep = 1 + 0.1 * Math.sin(t * 2 + 0.4) + 0.04 * Math.sin(t * 4);
+        pts.push({ x: Math.cos(t) * rx * sweep, z: Math.sin(t) * rz * sweep, t });
       }
     }
 
@@ -250,7 +252,7 @@ export class Track {
     // Red/white curbs sample
     const curbA = new THREE.MeshStandardMaterial({ color: 0xffffff, flatShading: true });
     const curbB = new THREE.MeshStandardMaterial({ color: 0xff3344, flatShading: true });
-    for (let i = 0; i < pts.length; i += 2) {
+    for (let i = 0; i < pts.length; i += 1) {
       const p = pts[i];
       const n = pts[(i + 1) % pts.length];
       const ang = Math.atan2(n.x - p.x, n.z - p.z);
@@ -263,6 +265,25 @@ export class Track {
         this._addMesh(c);
       }
     }
+
+    // Racing-line chevrons (readable flow from chase cam)
+    const chevMat = new THREE.MeshStandardMaterial({
+      color: 0x66ffcc,
+      emissive: 0x22aa66,
+      emissiveIntensity: 0.45,
+      flatShading: true,
+    });
+    for (let i = 0; i < pts.length; i += 3) {
+      const p = pts[i];
+      const n = pts[(i + 1) % pts.length];
+      const ang = Math.atan2(n.x - p.x, n.z - p.z);
+      const chev = new THREE.Mesh(new THREE.ConeGeometry(0.55, 1.1, 3), chevMat);
+      chev.rotation.x = Math.PI / 2;
+      chev.rotation.z = ang;
+      chev.position.set(p.x, 0.08, p.z);
+      this._addMesh(chev);
+    }
+
   }
 
   _buildWalls() {

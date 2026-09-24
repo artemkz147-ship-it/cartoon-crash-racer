@@ -41,7 +41,7 @@ export class Game {
     this.raceTime = 0;
     this.finished = false;
     this.shakeTime = 0;
-    this.baseFov = 58;
+    this.baseFov = 55;
     this.fovPunch = 0;
     this.maxLaps = this.options.laps || 3;
     this.isDerby = this.options.mode === 'derby';
@@ -343,6 +343,8 @@ export class Game {
   };
 
   _update(dt) {
+    this.input.update?.(dt);
+
     if (this.input.consumePause()) {
       this.togglePause();
       return;
@@ -357,7 +359,7 @@ export class Game {
       const throttle = this.input.throttleAxis;
       const steer = this.input.steerAxis;
       const boosting = this.input.boost && p.boost > 0 && throttle > 0.1;
-      if (boosting) this.fovPunch = Math.max(this.fovPunch, 8);
+      if (boosting) this.fovPunch = Math.max(this.fovPunch, 3);
       p.setControls({ throttle, steer, boost: this.input.boost });
       if (this.input.fire) {
         const shot = p.tryFire();
@@ -559,28 +561,36 @@ export class Game {
   _updateCamera(dt) {
     const car = this.player;
     const fwd = car.forward;
+    // Chase cam: sit behind + slightly above, look a bit ahead of the nose.
+    const back = 10.5;
+    const height = 5.2;
+    const lookAhead = 8.5;
     const target = new THREE.Vector3(
-      car.position.x - fwd.x * 9.5,
-      car.position.y + 5.8,
-      car.position.z - fwd.z * 9.5
+      car.position.x - fwd.x * back,
+      car.position.y + height,
+      car.position.z - fwd.z * back
     );
-    if (!car.alive) target.set(car.spawnPos.x, 18, car.spawnPos.z - 10);
+    if (!car.alive) target.set(car.spawnPos.x, 16, car.spawnPos.z - 12);
+    // Tiny shake only — phone WebView hates big punches
     if (this.shakeTime > 0) {
-      const s = this.shakeTime * 10;
-      target.x += Math.sin(s * 37) * 0.2;
-      target.y += Math.cos(s * 29) * 0.14;
+      const s = this.shakeTime * 8;
+      target.x += Math.sin(s * 31) * 0.08;
+      target.y += Math.cos(s * 27) * 0.05;
     }
-    this._camPos.lerp(target, 1 - Math.pow(0.001, dt));
+    // Smooth follow ~120ms feel
+    const follow = 1 - Math.exp(-dt / 0.12);
+    this._camPos.lerp(target, follow);
     this.camera.position.copy(this._camPos);
     const look = new THREE.Vector3(
-      car.position.x + fwd.x * 7,
-      car.position.y + 1.3,
-      car.position.z + fwd.z * 7
+      car.position.x + fwd.x * lookAhead,
+      car.position.y + 1.1,
+      car.position.z + fwd.z * lookAhead
     );
-    this._camLook.lerp(look, 1 - Math.pow(0.0005, dt));
+    const lookK = 1 - Math.exp(-dt / 0.1);
+    this._camLook.lerp(look, lookK);
     this.camera.lookAt(this._camLook);
     const want = this.baseFov + this.fovPunch;
-    this.camera.fov += (want - this.camera.fov) * Math.min(1, 10 * dt);
+    this.camera.fov += (want - this.camera.fov) * Math.min(1, 8 * dt);
     this.camera.updateProjectionMatrix();
   }
 }

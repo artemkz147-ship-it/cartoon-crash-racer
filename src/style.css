@@ -307,8 +307,8 @@ body.touch-mode .controls-hint {
 }
 
 .joystick {
-  width: 120px;
-  height: 120px;
+  width: 148px;
+  height: 148px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.12);
   border: 3px solid rgba(255, 255, 255, 0.28);
@@ -324,9 +324,9 @@ body.touch-mode .controls-hint {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 48px;
-  height: 48px;
-  margin: -24px 0 0 -24px;
+  width: 58px;
+  height: 58px;
+  margin: -29px 0 0 -29px;
   border-radius: 50%;
   background: rgba(255, 229, 102, 0.85);
   border: 2px solid rgba(0, 0, 0, 0.25);
@@ -348,8 +348,8 @@ body.touch-mode .controls-hint {
 }
 
 .steer-pads {
-  display: flex;
-  gap: 10px;
+  /* Stick-only steering on phone — pads caused wrong-direction confusion */
+  display: none;
 }
 
 .touch-btn {
@@ -383,8 +383,8 @@ body.touch-mode .controls-hint {
 .touch-btn.action.gas {
   grid-column: 2;
   grid-row: 1 / span 2;
-  width: 88px;
-  height: 128px;
+  width: 96px;
+  height: 148px;
   font-size: 16px;
   background: rgba(60, 200, 100, 0.45);
   border-radius: 24px;
@@ -435,9 +435,9 @@ body.touch-mode .controls-hint {
   }
   .stat { font-size: 11px; }
   .bar { width: 70px; height: 8px; }
-  .joystick { width: 100px; height: 100px; }
-  .joystick-knob { width: 40px; height: 40px; margin: -20px 0 0 -20px; }
-  .touch-btn.action.gas { height: 110px; width: 78px; }
+  .joystick { width: 120px; height: 120px; }
+  .joystick-knob { width: 48px; height: 48px; margin: -24px 0 0 -24px; }
+  .touch-btn.action.gas { height: 130px; width: 88px; }
   .touch-btn.action.fire { bottom: 180px; width: 68px; height: 68px; }
   .touch-btn.action.respawn { bottom: 190px; }
   #pause-btn { width: 40px; height: 40px; font-size: 16px; }

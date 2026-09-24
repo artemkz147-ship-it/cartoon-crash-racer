@@ -39,3 +39,8 @@ dist-apk/
 # Keep release.jks tracked for CI sideload signing (indie)
 !android/keystore/
 !android/keystore/release.jks
+
+*.zip
+*.apk
+dist-apk/
+

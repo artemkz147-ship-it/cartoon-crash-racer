@@ -54,8 +54,8 @@ export class Car {
     this.body = new CANNON.Body({
       mass,
       shape,
-      linearDamping: 0.28,
-      angularDamping: 0.55,
+      linearDamping: 0.42,
+      angularDamping: 0.38,
       material: new CANNON.Material('car'),
     });
     this.body.position.set(spawn.px, 1.0, spawn.pz);
@@ -120,9 +120,11 @@ export class Car {
     const ud = this.mesh.userData;
     const hp = this.health;
     if (ud.dents) {
-      ud.dents[0].visible = hp < 70;
-      ud.dents[1].visible = hp < 45;
-      ud.dents[2].visible = hp < 25;
+      // Clearer staged damage (4 overlays)
+      if (ud.dents[0]) ud.dents[0].visible = hp < 75;
+      if (ud.dents[1]) ud.dents[1].visible = hp < 55;
+      if (ud.dents[2]) ud.dents[2].visible = hp < 35;
+      if (ud.dents[3]) ud.dents[3].visible = hp < 18;
     }
     if (ud.smokePuff) ud.smokePuff.visible = hp < 40 && this.alive;
     if (ud.bodyMat) {
@@ -215,11 +217,12 @@ export class Car {
 
     const spdMul = 0.75 + (this.stats.speed || 0.8) * 0.45;
     const handMul = 0.7 + (this.stats.handling || 0.8) * 0.5;
-    const maxSpeed = (this._boosting ? 50 : 32) * spdMul;
-    const accel = (this._boosting ? 70 : 48) * spdMul;
-    const brake = 58;
-    const steerSpeed = 3.4 * handMul;
-    const gripBase = (0.88 + (this.stats.handling || 0.8) * 0.08) * (this.trackGrip || 1);
+    // v1.1 feel: ~40% slower top end, softer accel, more coast drag (arcade CTR/FlatOut)
+    const maxSpeed = (this._boosting ? 30 : 19) * spdMul;
+    const accel = (this._boosting ? 42 : 28) * spdMul;
+    const brake = 52;
+    const steerSpeed = 3.15 * handMul;
+    const gripBase = (0.9 + (this.stats.handling || 0.8) * 0.08) * (this.trackGrip || 1);
 
     const fwd = this.forward;
     const right = this.right;
@@ -241,22 +244,28 @@ export class Car {
       const force = brake * this._throttle * 200;
       this.body.applyForce(new CANNON.Vec3(fwd.x * force, 0, fwd.z * force), this.body.position);
     } else {
-      this.body.velocity.x *= 1 - 1.4 * dt;
-      this.body.velocity.z *= 1 - 1.4 * dt;
+      this.body.velocity.x *= 1 - 2.2 * dt;
+      this.body.velocity.z *= 1 - 2.2 * dt;
     }
 
-    const steerFactor = Math.min(1, Math.abs(speed) / 5.5 + 0.2);
+    // Steering sign (chase cam behind car, Y-up):
+    //   +steer (stick RIGHT) → targetYaw NEGATIVE → clockwise yaw → turn RIGHT on screen.
+    //   -steer (stick LEFT)  → targetYaw POSITIVE → CCW yaw → turn LEFT on screen.
+    // Do not flip the leading minus without also flipping Input stick X.
+    const steerFactor = Math.min(1, Math.abs(speed) / 4.5 + 0.25);
     if (Math.abs(this._steer) > 0.04) {
       const dir = speed >= -1 ? 1 : -1;
-      const driftExtra = Math.min(0.6, Math.abs(lat) / 18);
+      const driftExtra = Math.min(0.55, Math.abs(lat) / 16);
       const targetYaw = -this._steer * (steerSpeed + driftExtra) * steerFactor * dir;
-      this.body.angularVelocity.y += (targetYaw - this.body.angularVelocity.y) * Math.min(1, 16 * dt);
+      // ~50–70 ms approach (was ~16*dt ≈ sluggish with high angularDamping)
+      const k = 1 - Math.exp(-dt / 0.055);
+      this.body.angularVelocity.y += (targetYaw - this.body.angularVelocity.y) * k;
     } else {
-      this.body.angularVelocity.y *= 0.75;
+      this.body.angularVelocity.y *= 0.72;
     }
 
-    if (this._boosting) this.boost = Math.max(0, this.boost - 30 * dt);
-    else this.boost = Math.min(MAX_BOOST, this.boost + 7 * dt);
+    if (this._boosting) this.boost = Math.max(0, this.boost - 22 * dt);
+    else this.boost = Math.min(MAX_BOOST, this.boost + 9 * dt);
 
     this.mesh.position.copy(this.body.position);
     this.mesh.quaternion.copy(this.body.quaternion);

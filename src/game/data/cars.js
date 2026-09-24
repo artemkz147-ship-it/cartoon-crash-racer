@@ -3,11 +3,11 @@ export const CARS = [
   {
     id: 'kartoshka',
     name: 'Картошка',
-    desc: 'Стартовый багги. Честный и крепкий.',
+    desc: 'Стартовый багги. Самый приятный руль для обучения.',
     color: 0xff4d4d,
     accent: 0xffe566,
     style: 'buggy',
-    stats: { speed: 0.78, handling: 0.82, armor: 0.75, weapon: 0.7 },
+    stats: { speed: 0.8, handling: 0.9, armor: 0.78, weapon: 0.72 },
     unlock: { type: 'start' },
   },
   {

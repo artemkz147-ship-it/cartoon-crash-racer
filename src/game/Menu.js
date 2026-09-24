@@ -56,7 +56,7 @@ export class Menu {
     return `
       <div class="menu-panel main-menu">
         <h1>Мультяшные гонки</h1>
-        <p class="subtitle">FlatOut × CTR · карьера · дерби · гараж · v1.0</p>
+        <p class="subtitle">FlatOut × CTR · карьера · дерби · гараж · v1.1</p>
         <div class="menu-stats">
           <span>🏅 Медалей: ${p.medals || 0}</span>
           <span>🏆 Кубков: ${p.cupsCleared || 0}/12</span>
