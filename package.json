@@ -1,0 +1,20 @@
+{
+  "name": "cartoon-crash-racer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^8.3.0"
+  },
+  "dependencies": {
+    "cannon-es": "^0.20.0",
+    "three": "^0.186.0"
+  },
+  "description": "Мультяшные гонки с разрушениями — прототип FlatOut×CTR на Three.js + cannon-es",
+  "license": "MIT"
+}

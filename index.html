@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Мультяшные гонки с разрушениями</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="game-canvas"></canvas>
+      <div id="hud">
+        <div class="hud-panel left">
+          <div class="stat"><span class="label">Здоровье</span><div class="bar"><div id="health-bar" class="fill health"></div></div><span id="health-val">100</span></div>
+          <div class="stat"><span class="label">Броня</span><div class="bar"><div id="armor-bar" class="fill armor"></div></div><span id="armor-val">0</span></div>
+          <div class="stat"><span class="label">Оружие</span><span id="weapon-val" class="value">—</span></div>
+          <div class="stat"><span class="label">Ускорение</span><span id="boost-val" class="value">0</span></div>
+        </div>
+        <div class="hud-panel right">
+          <div class="stat"><span class="label">Круг</span><span id="lap-val" class="value">1 / 3</span></div>
+          <div class="stat"><span class="label">Время</span><span id="time-val" class="value">0:00</span></div>
+          <div class="stat"><span class="label">Место</span><span id="place-val" class="value">1</span></div>
+        </div>
+        <div id="message" class="message hidden"></div>
+        <div id="controls-hint" class="controls-hint">
+          <strong>Управление</strong>
+          <span>WASD / стрелки — езда</span>
+          <span>Space / Shift — ускорение</span>
+          <span>ЛКМ / F — стрельба</span>
+          <span>R — респаун</span>
+        </div>
+      </div>
+      <div id="start-screen">
+        <h1>Мультяшные гонки<br/>с разрушениями</h1>
+        <p class="subtitle">FlatOut × Crash Team Racing — прототип</p>
+        <button id="start-btn">СТАРТ!</button>
+        <p class="hint">Тарань соперников, круши ящики, собирай бонусы</p>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
