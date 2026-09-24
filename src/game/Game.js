@@ -8,6 +8,8 @@ import { Pickups } from './Pickups.js';
 import { Projectiles } from './Projectiles.js';
 import { AIController } from './AI.js';
 import { HUD } from './HUD.js';
+import { Particles } from './Particles.js';
+import { GameAudio } from './Audio.js';
 
 const MAX_LAPS = 3;
 
@@ -25,33 +27,49 @@ export class Game {
     this.raceTime = 0;
     this.finished = false;
     this.shakeTime = 0;
+    this.baseFov = 58;
+    this.fovPunch = 0;
 
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.audio = new GameAudio();
+
+    // Mid-phone friendly: soft shadows optional via blob shadows on cars
+    const isMobile =
+      'ontouchstart' in window || navigator.maxTouchPoints > 0 || window.innerWidth < 900;
+    this.renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: !isMobile,
+      powerPreference: 'high-performance',
+    });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.5 : 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.enabled = !isMobile;
+    if (!isMobile) this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.setClearColor(0x87b8ff, 1);
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(0x87b8ff, 60, 140);
+    this.scene.fog = new THREE.Fog(0x9ec8ff, 70, 150);
 
-    this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 250);
+    this.camera = new THREE.PerspectiveCamera(
+      this.baseFov,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      280
+    );
     this.camera.position.set(0, 12, -20);
 
-    this.world = new CANNON.World({
-      gravity: new CANNON.Vec3(0, -25, 0),
-    });
+    this.world = new CANNON.World({ gravity: new CANNON.Vec3(0, -26, 0) });
     this.world.broadphase = new CANNON.SAPBroadphase(this.world);
     this.world.allowSleep = true;
 
-    this._setupLights();
+    this._setupLights(isMobile);
+    this.particles = new Particles(this.scene);
     this.track = new Track(this.scene, this.world);
-    this.props = new DestructibleProps(this.scene, this.world);
+    this.props = new DestructibleProps(this.scene, this.world, this.particles);
     this.pickups = new Pickups(this.scene);
-    this.projectiles = new Projectiles(this.scene);
+    this.projectiles = new Projectiles(this.scene, this.particles);
     this.input = new Input();
-    this.hud = new HUD();
+    this.hud = new HUD(this.audio);
 
     this.cars = [];
     this.ai = [];
@@ -68,14 +86,20 @@ export class Game {
         name: cfg.name,
         isPlayer: cfg.isPlayer,
         spawn,
+        particles: this.particles,
       });
+      car.onBoostStart = () => this.audio.boost();
+      car.onDie = () => {
+        this.audio.explosion();
+        if (car.isPlayer) this.triggerShake(0.35);
+      };
       this.cars.push(car);
       if (cfg.isPlayer) this.player = car;
     }
 
     for (const car of this.cars) {
       if (!car.isPlayer) {
-        this.ai.push(new AIController(car, this.track, this.cars));
+        this.ai.push(new AIController(car, this.track, this.cars, this.pickups));
       }
     }
 
@@ -87,28 +111,36 @@ export class Game {
     window.addEventListener('resize', this._onResize);
     window.addEventListener('orientationchange', () => setTimeout(() => this._resize(), 120));
 
-    this.hud.showMessage('Гонка на 3 круга!', 2.5);
+    this.hud.showMessage('Гонка на 3 круга!', 2.2);
   }
 
-  _setupLights() {
-    const hemi = new THREE.HemisphereLight(0xfff0d0, 0x3a6a40, 0.85);
+  _setupLights(isMobile) {
+    const hemi = new THREE.HemisphereLight(0xfff2dd, 0x3a6a48, 0.95);
     this.scene.add(hemi);
 
-    const sun = new THREE.DirectionalLight(0xffffff, 1.15);
-    sun.position.set(30, 50, 20);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -50;
-    sun.shadow.camera.right = 50;
-    sun.shadow.camera.top = 50;
-    sun.shadow.camera.bottom = -50;
-    sun.shadow.camera.near = 1;
-    sun.shadow.camera.far = 120;
+    const sun = new THREE.DirectionalLight(0xfff5e6, 1.2);
+    sun.position.set(35, 55, 25);
+    if (!isMobile) {
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(1024, 1024);
+      sun.shadow.camera.left = -55;
+      sun.shadow.camera.right = 55;
+      sun.shadow.camera.top = 55;
+      sun.shadow.camera.bottom = -55;
+      sun.shadow.camera.near = 1;
+      sun.shadow.camera.far = 130;
+      sun.shadow.bias = -0.0005;
+    }
     this.scene.add(sun);
+    this.sun = sun;
 
-    const fill = new THREE.DirectionalLight(0x88aaff, 0.35);
-    fill.position.set(-20, 20, -30);
+    const fill = new THREE.DirectionalLight(0x88aaff, 0.4);
+    fill.position.set(-25, 22, -30);
     this.scene.add(fill);
+
+    const rim = new THREE.DirectionalLight(0xffaa88, 0.25);
+    rim.position.set(0, 10, -40);
+    this.scene.add(rim);
   }
 
   _setupCollisions() {
@@ -123,40 +155,48 @@ export class Game {
       if (carA && carB) {
         const rel = a.velocity.vsub(b.velocity);
         const speed = rel.length();
-        if (speed > 8) {
-          const dmg = Math.min(28, (speed - 8) * 1.4);
-          carA.takeDamage(dmg * 0.85, true);
-          carB.takeDamage(dmg * 0.85, true);
+        if (speed > 7) {
+          const dmg = Math.min(36, (speed - 7) * 1.7);
+          carA.takeDamage(dmg * 0.9, true);
+          carB.takeDamage(dmg * 0.9, true);
           const mid = a.position.vadd(b.position).scale(0.5);
           const pushA = a.position.vsub(mid);
           pushA.y = 0;
           if (pushA.length() > 0.01) pushA.normalize();
-          a.velocity.x += pushA.x * speed * 0.28;
-          a.velocity.z += pushA.z * speed * 0.28;
-          a.velocity.y += 2.4;
-          b.velocity.x -= pushA.x * speed * 0.28;
-          b.velocity.z -= pushA.z * speed * 0.28;
-          b.velocity.y += 2.4;
-          if (carA.isPlayer || carB.isPlayer) this.triggerShake(0.22);
+          const impulse = speed * 0.38;
+          a.velocity.x += pushA.x * impulse;
+          a.velocity.z += pushA.z * impulse;
+          a.velocity.y += 2.8;
+          b.velocity.x -= pushA.x * impulse;
+          b.velocity.z -= pushA.z * impulse;
+          b.velocity.y += 2.8;
+          if (this.particles) {
+            this.particles.sparks(mid.x, mid.y + 0.5, mid.z, 14);
+          }
+          this.audio.crash(Math.min(1, speed / 30));
+          if (carA.isPlayer || carB.isPlayer) this.triggerShake(0.18 + Math.min(0.2, speed * 0.008));
         }
       }
 
-      const hitProp = (car, propBody, propItem) => {
+      const hitProp = (car, propItem) => {
         if (!car || !propItem) return;
         const speed = car.body.velocity.length();
-        if (speed > 5) {
-          this.props.damageProp(propItem, 10 + speed * 1.5, {
+        if (speed > 4.5) {
+          this.props.damageProp(propItem, 12 + speed * 1.7, {
             x: car.body.velocity.x,
             y: car.body.velocity.y,
             z: car.body.velocity.z,
           });
-          if (car.isPlayer) this.triggerShake(0.16);
-          if (speed > 22) car.takeDamage(3, true);
+          if (car.isPlayer) {
+            this.triggerShake(0.14);
+            this.audio.crash(0.4);
+          }
+          if (speed > 20) car.takeDamage(2.5, true);
         }
       };
 
-      if (carA && propB) hitProp(carA, b, propB);
-      if (carB && propA) hitProp(carB, a, propA);
+      if (carA && propB) hitProp(carA, propB);
+      if (carB && propA) hitProp(carB, propA);
     });
   }
 
@@ -165,7 +205,6 @@ export class Game {
     const app = document.getElementById('app');
     if (app) {
       app.classList.remove('shake');
-      // restart animation
       void app.offsetWidth;
       app.classList.add('shake');
       setTimeout(() => app.classList.remove('shake'), 300);
@@ -173,16 +212,18 @@ export class Game {
   }
 
   start() {
+    this.audio.ensure();
     this.running = true;
     this.paused = false;
     this.raceTime = 0;
     this.finished = false;
+    this.hud.hideResults();
     this._clock.start();
     this._loop();
   }
 
   pause() {
-    if (!this.running || this.paused) return;
+    if (!this.running || this.paused || this.finished) return;
     this.paused = true;
     window.__showPauseOverlay?.(true);
   }
@@ -191,7 +232,7 @@ export class Game {
     if (!this.paused) return;
     this.paused = false;
     window.__showPauseOverlay?.(false);
-    this._clock.getDelta(); // discard pause gap
+    this._clock.getDelta();
     this._loop();
   }
 
@@ -224,15 +265,21 @@ export class Game {
 
     if (!this.finished) this.raceTime += dt;
     if (this.shakeTime > 0) this.shakeTime -= dt;
+    if (this.fovPunch > 0) this.fovPunch = Math.max(0, this.fovPunch - dt * 18);
 
     const p = this.player;
     if (p.alive) {
       const throttle = this.input.throttleAxis;
       const steer = this.input.steerAxis;
+      const boosting = this.input.boost && p.boost > 0 && throttle > 0.1;
+      if (boosting) this.fovPunch = Math.max(this.fovPunch, 8);
       p.setControls({ throttle, steer, boost: this.input.boost });
       if (this.input.fire) {
         const shot = p.tryFire();
-        if (shot) this.projectiles.spawn(shot, this.cars);
+        if (shot) {
+          this.projectiles.spawn(shot, this.cars);
+          this.audio.fire();
+        }
       }
     } else if (p.respawnTimer <= 0) {
       this._respawnCar(p);
@@ -263,26 +310,51 @@ export class Game {
 
     for (const car of this.cars) {
       car.update(dt);
-      car.updateLap(this.track.lapCheckpoints);
+      this.track.checkRamps(car);
+      const lapped = car.updateLap(this.track.lapCheckpoints);
+      if (lapped && car.isPlayer) {
+        this.audio.lap();
+        this.hud.showMessage(`Круг ${Math.min(car.lap, MAX_LAPS)}!`, 1.2);
+      }
     }
 
     this.props.update(dt);
+    this.particles.update(dt);
     this.pickups.update(dt, this.cars, (car, type) => {
       if (car.isPlayer) {
-        const names = { weapon: 'Оружие!', armor: 'Броня!', boost: 'Ускорение!' };
+        const names = {
+          weapon: 'Ракета!',
+          weapon2: 'Особое оружие!',
+          armor: 'Броня!',
+          boost: 'Ускорение!',
+        };
         this.hud.showMessage(names[type] || 'Бонус!', 1);
+        this.audio.pickup();
       }
     });
     this.projectiles.update(dt, this.cars, (hit, owner) => {
       if (owner.isPlayer) {
-        this.hud.showMessage('Попадание!', 0.8);
-        this.triggerShake(0.18);
+        this.hud.showMessage('Попадание!', 0.7);
+        this.triggerShake(0.16);
+        this.audio.explosion();
       }
       if (hit.isPlayer) {
-        this.hud.showMessage('Тебя ранили!', 0.8);
-        this.triggerShake(0.25);
+        this.hud.showMessage('Тебя ранили!', 0.7);
+        this.triggerShake(0.24);
+        this.audio.crash(0.7);
       }
     });
+
+    // Engine audio
+    const spd01 = Math.min(1, Math.abs(p.speed) / 45);
+    this.audio.engine(p.alive ? spd01 : 0, p._boosting);
+
+    // Sun follow player lightly for shadow quality
+    if (this.sun && this.renderer.shadowMap.enabled) {
+      this.sun.position.set(p.position.x + 30, 55, p.position.z + 20);
+      this.sun.target.position.set(p.position.x, 0, p.position.z);
+      this.sun.target.updateMatrixWorld();
+    }
 
     this._updateCamera(dt);
     this.hud.update(dt, this.player, this._getPlace(this.player), this.raceTime, MAX_LAPS);
@@ -290,9 +362,20 @@ export class Game {
     if (!this.finished && this.player.lap > MAX_LAPS) {
       this.finished = true;
       const place = this._getPlace(this.player);
-      const places = ['1-е место!', '2-е место!', '3-е место!'];
-      this.hud.showMessage(`Финиш! ${places[place - 1] || ''}`, 6);
+      this.audio.finish();
+      this.hud.showResults({
+        place,
+        time: this.raceTime,
+        name: this.player.name,
+        standings: this._standings(),
+      });
     }
+  }
+
+  _standings() {
+    return [...this.cars]
+      .sort((a, b) => b.progress - a.progress)
+      .map((c, i) => ({ place: i + 1, name: c.name, lap: Math.min(c.lap, MAX_LAPS) }));
   }
 
   _respawnCar(car) {
@@ -314,28 +397,32 @@ export class Game {
     const car = this.player;
     const fwd = car.forward;
     const target = new THREE.Vector3(
-      car.position.x - fwd.x * 9,
-      car.position.y + 5.5,
-      car.position.z - fwd.z * 9
+      car.position.x - fwd.x * 9.5,
+      car.position.y + 5.8,
+      car.position.z - fwd.z * 9.5
     );
     if (!car.alive) {
       target.set(car.spawnPos.x, 18, car.spawnPos.z - 10);
     }
-    // light camera shake offset
     if (this.shakeTime > 0) {
-      const s = this.shakeTime * 8;
-      target.x += Math.sin(s * 37) * 0.15;
-      target.y += Math.cos(s * 29) * 0.1;
+      const s = this.shakeTime * 10;
+      target.x += Math.sin(s * 37) * 0.2;
+      target.y += Math.cos(s * 29) * 0.14;
     }
     this._camPos.lerp(target, 1 - Math.pow(0.001, dt));
     this.camera.position.copy(this._camPos);
 
     const look = new THREE.Vector3(
-      car.position.x + fwd.x * 6,
-      car.position.y + 1.2,
-      car.position.z + fwd.z * 6
+      car.position.x + fwd.x * 7,
+      car.position.y + 1.3,
+      car.position.z + fwd.z * 7
     );
     this._camLook.lerp(look, 1 - Math.pow(0.0005, dt));
     this.camera.lookAt(this._camLook);
+
+    // FOV punch on boost
+    const want = this.baseFov + this.fovPunch;
+    this.camera.fov += (want - this.camera.fov) * Math.min(1, 10 * dt);
+    this.camera.updateProjectionMatrix();
   }
 }

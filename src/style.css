@@ -454,3 +454,84 @@ body.touch-mode .controls-hint {
   60% { transform: translate(-2px, -3px); }
   80% { transform: translate(3px, 1px); }
 }
+
+/* —— Mute button —— */
+#mute-btn {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top));
+  right: max(56px, calc(env(safe-area-inset-right) + 56px));
+  z-index: 25;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  background: rgba(10, 14, 30, 0.7);
+  color: #fff;
+  font-size: 18px;
+  pointer-events: auto;
+  touch-action: none;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+}
+#mute-btn.muted {
+  opacity: 0.55;
+}
+
+/* —— Results screen —— */
+#results-screen {
+  z-index: 45;
+  gap: 10px;
+}
+#results-screen h2 {
+  font-size: clamp(28px, 6vw, 42px);
+}
+.results-time {
+  font-size: 18px;
+  color: #ffe566;
+  font-weight: 700;
+}
+.results-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 220px;
+  padding: 12px 18px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  margin-bottom: 8px;
+}
+.result-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 16px;
+  font-weight: 700;
+}
+.result-row .place { color: #ffe566; min-width: 28px; }
+.result-row .name { flex: 1; text-align: left; }
+.result-row .lap { opacity: 0.7; font-size: 13px; }
+
+#again-btn {
+  pointer-events: auto;
+  margin-top: 8px;
+  padding: 16px 40px;
+  font-size: 20px;
+  font-weight: 900;
+  color: #1a1a2e;
+  background: linear-gradient(180deg, #ffe566, #ffb347);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 6px 0 #c45c1a, 0 12px 28px rgba(0, 0, 0, 0.35);
+  touch-action: manipulation;
+}
+#again-btn:active {
+  transform: translateY(4px);
+  box-shadow: 0 2px 0 #c45c1a, 0 6px 16px rgba(0, 0, 0, 0.3);
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  #mute-btn { width: 38px; height: 38px; font-size: 14px; right: 48px; }
+  .results-body { padding: 8px 12px; }
+}
