@@ -418,8 +418,8 @@ export class Track {
       tx /= len; tz /= len;
       const nx = tz;
       const nz = -tx;
-      leftEdge.push({ x: cur.x - nx * edgeHalf, z: cur.z - nz * edgeHalf });
-      rightEdge.push({ x: cur.x + nx * edgeHalf, z: cur.z + nz * edgeHalf });
+      leftEdge.push({ x: cur.x - nx * edgeHalf, z: cur.z - nz * edgeHalf, y: cur.y || 0 });
+      rightEdge.push({ x: cur.x + nx * edgeHalf, z: cur.z + nz * edgeHalf, y: cur.y || 0 });
     }
     this._addMesh(this._makeRibbon(leftEdge, 0.18, 0.055, whiteMat, { uvScale: 0.2 }));
     this._addMesh(this._makeRibbon(rightEdge, 0.18, 0.055, whiteMat, { uvScale: 0.2 }));
