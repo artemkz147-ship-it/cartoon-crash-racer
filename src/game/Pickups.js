@@ -3,37 +3,56 @@ import { makePickupMesh } from './meshes.js';
 const TYPES = ['weapon', 'weapon2', 'armor', 'boost'];
 
 export class Pickups {
-  constructor(scene) {
+  constructor(scene, track) {
     this.scene = scene;
+    this.track = track;
     this.items = [];
     this._spawn();
   }
 
+  dispose() {
+    for (const item of this.items) this.scene.remove(item.mesh);
+    this.items = [];
+  }
+
   _spawn() {
-    for (let i = 0; i < 14; i++) {
-      const a = (i / 14) * Math.PI * 2;
-      const r = i % 3 === 0 ? 24 : i % 3 === 1 ? 28 : 33;
-      const type = TYPES[i % TYPES.length];
-      this._add(type, Math.cos(a) * r, Math.sin(a) * r);
+    const cfg = this.track?.cfg;
+    const count = cfg?.pickupCount || 12;
+    const pts = this.track?.waypoints || [];
+    if (!pts.length) {
+      for (let i = 0; i < count; i++) {
+        const a = (i / count) * Math.PI * 2;
+        const r = 24 + (i % 3) * 4;
+        this._add(TYPES[i % TYPES.length], Math.cos(a) * r, Math.sin(a) * r);
+      }
+      return;
     }
-    // Shortcut pickups
-    this._add('boost', -8, 0);
-    this._add('weapon2', -10, 2);
+    for (let i = 0; i < count; i++) {
+      const idx = Math.floor((i / count) * pts.length) % pts.length;
+      const p = pts[idx];
+      const n = pts[(idx + 1) % pts.length];
+      const ang = Math.atan2(n.x - p.x, n.z - p.z);
+      const side = i % 2 ? 1 : -1;
+      const nx = Math.cos(ang);
+      const nz = -Math.sin(ang);
+      this._add(
+        TYPES[i % TYPES.length],
+        p.x + nx * side * 2.5,
+        p.z + nz * side * 2.5
+      );
+    }
+    if (cfg?.shortcut) {
+      const mid = pts[Math.floor(pts.length * 0.5)];
+      this._add('boost', mid.x * 0.4, mid.z * 0.4);
+      this._add('weapon2', mid.x * 0.35, mid.z * 0.35 + 2);
+    }
   }
 
   _add(type, x, z) {
     const mesh = makePickupMesh(type);
     mesh.position.set(x, 1.4, z);
     this.scene.add(mesh);
-    this.items.push({
-      type,
-      mesh,
-      x,
-      z,
-      alive: true,
-      respawn: 0,
-      phase: Math.random() * Math.PI * 2,
-    });
+    this.items.push({ type, mesh, x, z, alive: true, respawn: 0, phase: Math.random() * Math.PI * 2 });
   }
 
   update(dt, cars, onPickup) {
@@ -46,7 +65,6 @@ export class Pickups {
         }
         continue;
       }
-
       item.phase += dt * 2.8;
       item.mesh.position.y = 1.4 + Math.sin(item.phase) * 0.45;
       item.mesh.rotation.y += dt * 2.6;
@@ -60,14 +78,6 @@ export class Pickups {
         ud.glow.scale.setScalar(s);
       }
       if (ud.ring) ud.ring.rotation.z += dt * 1.8;
-      if (ud.ring2) {
-        ud.ring2.rotation.y += dt * 2.2;
-        ud.ring2.rotation.z -= dt * 1.4;
-      }
-      if (ud.icon) {
-        ud.icon.position.y = 1.5 + Math.sin(item.phase * 1.5) * 0.15;
-        ud.icon.rotation.y += dt * 4;
-      }
 
       for (const car of cars) {
         if (!car.alive) continue;
@@ -79,13 +89,11 @@ export class Pickups {
           item.mesh.visible = false;
           item.respawn = 7;
           if (onPickup) onPickup(car, item.type);
-          break;
         }
       }
     }
   }
 
-  /** Nearest alive pickup for AI. */
   nearest(x, z) {
     let best = null;
     let bestD = Infinity;

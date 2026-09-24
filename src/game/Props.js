@@ -9,81 +9,124 @@ import {
 } from './meshes.js';
 
 export class DestructibleProps {
-  constructor(scene, world, particles) {
+  constructor(scene, world, particles, track) {
     this.scene = scene;
     this.world = world;
     this.particles = particles || null;
+    this.track = track;
     this.items = [];
     this.debris = [];
+    this.destructionScore = 0;
+    this.onExplode = null;
     this._spawnAll();
   }
 
+  dispose() {
+    for (const item of this.items) {
+      if (item.alive) {
+        this.scene.remove(item.mesh);
+        this.world.removeBody(item.body);
+      }
+    }
+    for (const d of this.debris) {
+      this.scene.remove(d.mesh);
+      this.world.removeBody(d.body);
+    }
+    this.items = [];
+    this.debris = [];
+  }
+
   _spawnAll() {
+    const cfg = this.track.cfg;
+    const density = cfg.propDensity || 1;
+    const pts = this.track.waypoints;
+    const w = cfg.width || 11;
     const spots = [];
-    // Dense clusters for FlatOut feel
-    for (let i = 0; i < 20; i++) {
-      const a = (i / 20) * Math.PI * 2 + 0.15;
-      spots.push({ type: 'crate', x: Math.cos(a) * 20.5, z: Math.sin(a) * 20.5 });
-      spots.push({ type: 'crate', x: Math.cos(a + 0.08) * 35.5, z: Math.sin(a + 0.08) * 35.5 });
+
+    const crateN = Math.floor(18 * density);
+    for (let i = 0; i < crateN; i++) {
+      const idx = Math.floor((i / crateN) * pts.length) % pts.length;
+      const p = pts[idx];
+      const n = pts[(idx + 1) % pts.length];
+      const ang = Math.atan2(n.x - p.x, n.z - p.z);
+      const nx = Math.cos(ang);
+      const nz = -Math.sin(ang);
+      const side = i % 2 ? 1 : -1;
+      const along = ((i % 5) - 2) * 0.8;
+      spots.push({
+        type: 'crate',
+        x: p.x + nx * side * (w * 0.32) + Math.sin(ang) * along,
+        z: p.z + nz * side * (w * 0.32) + Math.cos(ang) * along,
+      });
     }
-    for (let i = 0; i < 14; i++) {
-      const a = (i / 14) * Math.PI * 2 + 0.35;
-      spots.push({ type: 'barrel', x: Math.cos(a) * 23.5, z: Math.sin(a) * 23.5 });
-      spots.push({ type: 'barrel', x: Math.cos(a) * 33, z: Math.sin(a) * 33 });
+
+    const barrelN = Math.floor((cfg.barrelsExtra ? 22 : 14) * density);
+    for (let i = 0; i < barrelN; i++) {
+      const idx = Math.floor(((i + 0.5) / barrelN) * pts.length) % pts.length;
+      const p = pts[idx];
+      const n = pts[(idx + 1) % pts.length];
+      const ang = Math.atan2(n.x - p.x, n.z - p.z);
+      const nx = Math.cos(ang);
+      const nz = -Math.sin(ang);
+      const side = i % 2 ? -1 : 1;
+      spots.push({
+        type: 'barrel',
+        explosive: true,
+        x: p.x + nx * side * (w * 0.28),
+        z: p.z + nz * side * (w * 0.28),
+      });
     }
-    for (let i = 0; i < 10; i++) {
-      const a = (i / 10) * Math.PI * 2 + 0.12;
-      spots.push({ type: 'barrier', x: Math.cos(a) * 21.5, z: Math.sin(a) * 21.5, yaw: -a });
+
+    const barN = Math.floor(10 * density);
+    for (let i = 0; i < barN; i++) {
+      const idx = Math.floor(((i + 0.25) / barN) * pts.length) % pts.length;
+      const p = pts[idx];
+      const n = pts[(idx + 1) % pts.length];
+      const ang = Math.atan2(n.x - p.x, n.z - p.z);
+      spots.push({ type: 'barrier', x: p.x, z: p.z, yaw: ang + Math.PI / 2 });
     }
-    // Prop piles in corners
-    for (let k = 0; k < 4; k++) {
-      const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
-      for (let j = 0; j < 4; j++) {
+
+    // Piles in corners / center-ish
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2 + 0.3;
+      const r = cfg.derby ? 8 : 22;
+      for (let j = 0; j < 3; j++) {
         spots.push({
-          type: j % 2 ? 'crate' : 'barrel',
-          x: Math.cos(a) * 30 + (j - 1.5) * 1.4,
-          z: Math.sin(a) * 30 + ((j % 3) - 1) * 1.2,
+          type: j === 1 ? 'barrel' : 'crate',
+          explosive: j === 1,
+          x: Math.cos(a) * r + (j - 1) * 1.3,
+          z: Math.sin(a) * r + ((j % 2) - 0.5) * 1.2,
         });
       }
     }
-    // Breakable shortcut walls
-    spots.push({ type: 'wall', x: -13.5, z: 3.5, yaw: 0.3 });
-    spots.push({ type: 'wall', x: -13.5, z: -3.5, yaw: -0.3 });
-    spots.push({ type: 'wall', x: 30, z: 8, yaw: 1.2 });
+
+    if (cfg.shortcut) {
+      const mid = pts[Math.floor(pts.length * 0.5)];
+      spots.push({ type: 'wall', x: mid.x * 0.55, z: mid.z * 0.55 + 3, yaw: 0.3 });
+      spots.push({ type: 'wall', x: mid.x * 0.55, z: mid.z * 0.55 - 3, yaw: -0.3 });
+    }
 
     for (const s of spots) this._addProp(s);
   }
 
   _addProp(s) {
-    let mesh;
-    let half;
-    let mass;
-    let color;
-    let hp;
+    let mesh, half, mass, color, hp;
     if (s.type === 'crate') {
       mesh = makeCrateMesh();
       half = new CANNON.Vec3(0.62, 0.62, 0.62);
-      mass = 28;
-      color = 0xc48a3a;
-      hp = 28;
+      mass = 28; color = 0xc48a3a; hp = 28;
     } else if (s.type === 'barrel') {
-      mesh = makeBarrelMesh();
+      mesh = makeBarrelMesh(s.explosive !== false);
       half = new CANNON.Vec3(0.48, 0.58, 0.48);
-      mass = 22;
-      color = 0xd4452a;
-      hp = 22;
+      mass = 22; color = 0xd4452a; hp = 18;
     } else if (s.type === 'wall') {
       mesh = makeWallBreakableMesh();
       half = new CANNON.Vec3(1.6, 1.0, 0.3);
-      mass = 55;
-      color = 0x8899aa;
-      hp = 55;
+      mass = 55; color = 0x8899aa; hp = 55;
     } else {
       mesh = makeBarrierMesh();
       half = new CANNON.Vec3(1.15, 0.48, 0.3);
-      mass = 42;
-      color = 0xff8c1a;
-      hp = 48;
+      mass = 42; color = 0xff8c1a; hp = 48;
     }
     mesh.position.set(s.x, half.y + 0.05, s.z);
     if (s.yaw != null) mesh.rotation.y = s.yaw;
@@ -100,63 +143,106 @@ export class DestructibleProps {
     body.userData = { prop: true };
     this.world.addBody(body);
 
-    const item = { type: s.type, mesh, body, hp, color, alive: true };
+    const item = {
+      type: s.type,
+      mesh,
+      body,
+      hp,
+      color,
+      alive: true,
+      explosive: s.type === 'barrel' && s.explosive !== false,
+    };
     body.userData.item = item;
     this.items.push(item);
   }
 
-  damageProp(item, amount, impactVel) {
+  damageProp(item, amount, impactVel, fromChain = false) {
     if (!item || !item.alive) return;
     item.hp -= amount;
-    if (item.hp <= 0) this._shatter(item, impactVel);
+    if (item.hp <= 0) this._shatter(item, impactVel, fromChain);
   }
 
-  _shatter(item, impactVel) {
+  _shatter(item, impactVel, fromChain = false) {
     item.alive = false;
     this.scene.remove(item.mesh);
     this.world.removeBody(item.body);
 
     const origin = item.body.position;
+    const points = item.type === 'wall' ? 12 : item.type === 'barrier' ? 8 : item.explosive ? 15 : 5;
+    this.destructionScore += points;
+
     if (this.particles) {
-      this.particles.explosion(origin.x, origin.y + 0.4, origin.z, item.type === 'wall' ? 1.2 : 0.8);
-      this.particles.sparks(origin.x, origin.y + 0.3, origin.z, 10);
+      this.particles.explosion(origin.x, origin.y + 0.4, origin.z, item.explosive ? 1.6 : item.type === 'wall' ? 1.2 : 0.8);
+      this.particles.sparks(origin.x, origin.y + 0.3, origin.z, item.explosive ? 18 : 10);
     }
 
-    const count = item.type === 'wall' ? 14 : item.type === 'barrier' ? 12 : 10;
-    // Cap live debris for mobile
-    const room = Math.max(0, 60 - this.debris.length);
+    if (item.explosive) {
+      this._chainExplode(origin.x, origin.y, origin.z, fromChain ? 8 : 12);
+      if (this.onExplode) this.onExplode(origin.x, origin.y, origin.z, 14);
+    }
+
+    const count = item.type === 'wall' ? 12 : item.explosive ? 14 : 8;
+    const room = Math.max(0, 55 - this.debris.length);
     const n = Math.min(count, room);
     for (let i = 0; i < n; i++) {
-      const pieceSize = 0.35 + Math.random() * 0.5;
+      const pieceSize = 0.3 + Math.random() * 0.45;
       const piece = makeDebrisPiece(item.color, pieceSize);
       piece.position.set(origin.x, origin.y + 0.3, origin.z);
       this.scene.add(piece);
-
       const size = pieceSize * 0.4;
       const body = new CANNON.Body({
-        mass: 2.8,
+        mass: 2.5,
         shape: new CANNON.Box(new CANNON.Vec3(size, size, size)),
         linearDamping: 0.12,
         angularDamping: 0.1,
       });
       body.position.set(
-        origin.x + (Math.random() - 0.5) * 1.0,
-        origin.y + 0.5 + Math.random() * 0.7,
-        origin.z + (Math.random() - 0.5) * 1.0
+        origin.x + (Math.random() - 0.5),
+        origin.y + 0.5 + Math.random() * 0.6,
+        origin.z + (Math.random() - 0.5)
       );
       const force = impactVel || { x: 0, y: 6, z: 0 };
       body.velocity.set(
-        force.x * 0.45 + (Math.random() - 0.5) * 14,
-        7 + Math.random() * 10,
-        force.z * 0.45 + (Math.random() - 0.5) * 14
+        force.x * 0.4 + (Math.random() - 0.5) * (item.explosive ? 18 : 12),
+        6 + Math.random() * (item.explosive ? 14 : 9),
+        force.z * 0.4 + (Math.random() - 0.5) * (item.explosive ? 18 : 12)
       );
-      body.angularVelocity.set(
-        (Math.random() - 0.5) * 18,
-        (Math.random() - 0.5) * 18,
-        (Math.random() - 0.5) * 18
-      );
+      body.angularVelocity.set((Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16);
       this.world.addBody(body);
-      this.debris.push({ mesh: piece, body, life: 2.8 + Math.random() * 1.2 });
+      this.debris.push({ mesh: piece, body, life: 2.5 + Math.random() });
+    }
+  }
+
+  _chainExplode(x, y, z, radius) {
+    const r2 = radius * radius;
+    for (const other of this.items) {
+      if (!other.alive || !other.explosive) continue;
+      const dx = other.body.position.x - x;
+      const dy = other.body.position.y - y;
+      const dz = other.body.position.z - z;
+      if (dx * dx + dy * dy + dz * dz < r2) {
+        // Delayed-feel: damage enough to shatter
+        this.damageProp(other, 100, { x: dx * 2, y: 10, z: dz * 2 }, true);
+      }
+    }
+  }
+
+  /** AoE damage to cars from barrel blast — called by Game via onExplode */
+  blastDamageCars(cars, x, y, z, radius) {
+    const r2 = radius * radius;
+    for (const car of cars) {
+      if (!car.alive) continue;
+      const dx = car.position.x - x;
+      const dz = car.position.z - z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < r2) {
+        const falloff = 1 - Math.sqrt(d2) / radius;
+        car.takeDamage(28 * falloff, true);
+        const len = Math.sqrt(d2) || 1;
+        car.body.velocity.x += (dx / len) * 12 * falloff;
+        car.body.velocity.z += (dz / len) * 12 * falloff;
+        car.body.velocity.y += 6 * falloff;
+      }
     }
   }
 
@@ -169,7 +255,6 @@ export class DestructibleProps {
         this.damageProp(item, 100, item.body.velocity);
       }
     }
-
     for (let i = this.debris.length - 1; i >= 0; i--) {
       const d = this.debris[i];
       d.life -= dt;

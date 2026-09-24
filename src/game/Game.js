@@ -10,18 +10,32 @@ import { AIController } from './AI.js';
 import { HUD } from './HUD.js';
 import { Particles } from './Particles.js';
 import { GameAudio } from './Audio.js';
+import { getCar } from './data/cars.js';
+import { RIVALS } from './data/rivals.js';
+import { calcMedal } from './data/career.js';
 
-const MAX_LAPS = 3;
-
-const RACERS = [
-  { name: 'Игрок', color: 0xff4d4d, accent: 0xffe566, isPlayer: true },
-  { name: 'Синий', color: 0x3d8bff, accent: 0xffffff, isPlayer: false },
-  { name: 'Зелёный', color: 0x3dcc6e, accent: 0xffee88, isPlayer: false },
-];
-
+/**
+ * options: {
+ *   mode: 'career'|'race'|'derby',
+ *   trackId, carId, laps, aiCount, difficulty,
+ *   cupId, needPlace,
+ *   onFinish(result), onQuit()
+ * }
+ */
 export class Game {
-  constructor(canvas) {
+  constructor(canvas, options = {}) {
     this.canvas = canvas;
+    this.options = {
+      mode: 'race',
+      trackId: 'city',
+      carId: 'kartoshka',
+      laps: 3,
+      aiCount: 4,
+      difficulty: 0.7,
+      cupId: null,
+      needPlace: 3,
+      ...options,
+    };
     this.running = false;
     this.paused = false;
     this.raceTime = 0;
@@ -29,10 +43,11 @@ export class Game {
     this.shakeTime = 0;
     this.baseFov = 58;
     this.fovPunch = 0;
+    this.maxLaps = this.options.laps || 3;
+    this.isDerby = this.options.mode === 'derby';
 
     this.audio = new GameAudio();
 
-    // Mid-phone friendly: soft shadows optional via blob shadows on cars
     const isMobile =
       'ontouchstart' in window || navigator.maxTouchPoints > 0 || window.innerWidth < 900;
     this.renderer = new THREE.WebGLRenderer({
@@ -40,16 +55,13 @@ export class Game {
       antialias: !isMobile,
       powerPreference: 'high-performance',
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.5 : 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.35 : 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = !isMobile;
     if (!isMobile) this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.setClearColor(0x87b8ff, 1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(0x9ec8ff, 70, 150);
-
     this.camera = new THREE.PerspectiveCamera(
       this.baseFov,
       window.innerWidth / window.innerHeight,
@@ -64,44 +76,26 @@ export class Game {
 
     this._setupLights(isMobile);
     this.particles = new Particles(this.scene);
-    this.track = new Track(this.scene, this.world);
-    this.props = new DestructibleProps(this.scene, this.world, this.particles);
-    this.pickups = new Pickups(this.scene);
+    this.track = new Track(this.scene, this.world, this.options.trackId);
+    this.renderer.setClearColor(this.track.cfg.clear, 1);
+    this.scene.fog = new THREE.Fog(this.track.cfg.fog, 70, 150);
+
+    this.props = new DestructibleProps(this.scene, this.world, this.particles, this.track);
+    this.props.onExplode = (x, y, z, r) => {
+      this.props.blastDamageCars(this.cars, x, y, z, r);
+      this.audio.explosion();
+      this.triggerShake(0.25);
+    };
+    this.pickups = new Pickups(this.scene, this.track);
     this.projectiles = new Projectiles(this.scene, this.particles);
-    this.input = new Input();
+    if (!window.__gameInput) window.__gameInput = new Input();
+    this.input = window.__gameInput;
     this.hud = new HUD(this.audio);
 
     this.cars = [];
     this.ai = [];
     this.player = null;
-
-    for (let i = 0; i < RACERS.length; i++) {
-      const cfg = RACERS[i];
-      const spawn = this.track.getSpawn(i, RACERS.length);
-      const car = new Car({
-        scene: this.scene,
-        world: this.world,
-        color: cfg.color,
-        accent: cfg.accent,
-        name: cfg.name,
-        isPlayer: cfg.isPlayer,
-        spawn,
-        particles: this.particles,
-      });
-      car.onBoostStart = () => this.audio.boost();
-      car.onDie = () => {
-        this.audio.explosion();
-        if (car.isPlayer) this.triggerShake(0.35);
-      };
-      this.cars.push(car);
-      if (cfg.isPlayer) this.player = car;
-    }
-
-    for (const car of this.cars) {
-      if (!car.isPlayer) {
-        this.ai.push(new AIController(car, this.track, this.cars, this.pickups));
-      }
-    }
+    this._buildRacers();
 
     this._setupCollisions();
     this._camPos = new THREE.Vector3();
@@ -111,13 +105,96 @@ export class Game {
     window.addEventListener('resize', this._onResize);
     window.addEventListener('orientationchange', () => setTimeout(() => this._resize(), 120));
 
-    this.hud.showMessage('Гонка на 3 круга!', 2.2);
+    const msg = this.isDerby
+      ? 'Дерби! Последний выживший / очки за разгром'
+      : `Гонка: ${this.maxLaps} круга(ов)!`;
+    this.hud.showMessage(msg, 2.4);
+    this.derbyEndTimer = 0;
+  }
+
+  _buildRacers() {
+    const playerCar = getCar(this.options.carId);
+    const aiCount = Math.min(7, Math.max(1, this.options.aiCount || 4));
+    const total = aiCount + 1;
+    const list = [
+      {
+        name: 'Игрок',
+        color: playerCar.color,
+        accent: playerCar.accent,
+        isPlayer: true,
+        carId: playerCar.id,
+        style: playerCar.style,
+        stats: playerCar.stats,
+      },
+    ];
+    for (let i = 0; i < aiCount; i++) {
+      const r = RIVALS[i % RIVALS.length];
+      list.push({
+        name: r.name,
+        color: r.color,
+        accent: r.accent,
+        isPlayer: false,
+        style: r.style,
+        stats: {
+          speed: 0.7 + this.options.difficulty * 0.25,
+          handling: 0.7 + r.skill * 0.2,
+          armor: 0.65 + (i % 3) * 0.08,
+          weapon: 0.7 + this.options.difficulty * 0.2,
+        },
+        skill: r.skill,
+        ramBias: r.ramBias,
+      });
+    }
+
+    for (let i = 0; i < list.length; i++) {
+      const cfg = list[i];
+      const spawn = this.track.getSpawn(i, total);
+      const car = new Car({
+        scene: this.scene,
+        world: this.world,
+        color: cfg.color,
+        accent: cfg.accent,
+        name: cfg.name,
+        isPlayer: cfg.isPlayer,
+        spawn,
+        particles: this.particles,
+        carId: cfg.carId,
+        style: cfg.style,
+        stats: cfg.stats,
+        weaponPower: cfg.stats?.weapon || 1,
+      });
+      car.onBoostStart = () => this.audio.boost();
+      car.onDie = (c) => {
+        this.audio.explosion();
+        if (c.isPlayer) this.triggerShake(0.35);
+        // Credit wreck to last hitter roughly: nearest alive rival
+        if (this.isDerby) {
+          c.derbyEliminated = true;
+          c.respawnTimer = 9999;
+        }
+      };
+      this.cars.push(car);
+      if (cfg.isPlayer) this.player = car;
+    }
+
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].isPlayer) continue;
+      const ctrl = new AIController(
+        this.cars[i],
+        this.track,
+        this.cars,
+        this.pickups,
+        this.options.difficulty
+      );
+      if (list[i].skill) ctrl.skill = list[i].skill;
+      if (list[i].ramBias) ctrl.ramBias = list[i].ramBias;
+      this.ai.push(ctrl);
+    }
   }
 
   _setupLights(isMobile) {
     const hemi = new THREE.HemisphereLight(0xfff2dd, 0x3a6a48, 0.95);
     this.scene.add(hemi);
-
     const sun = new THREE.DirectionalLight(0xfff5e6, 1.2);
     sun.position.set(35, 55, 25);
     if (!isMobile) {
@@ -133,14 +210,9 @@ export class Game {
     }
     this.scene.add(sun);
     this.sun = sun;
-
     const fill = new THREE.DirectionalLight(0x88aaff, 0.4);
     fill.position.set(-25, 22, -30);
     this.scene.add(fill);
-
-    const rim = new THREE.DirectionalLight(0xffaa88, 0.25);
-    rim.position.set(0, 10, -40);
-    this.scene.add(rim);
   }
 
   _setupCollisions() {
@@ -159,6 +231,10 @@ export class Game {
           const dmg = Math.min(36, (speed - 7) * 1.7);
           carA.takeDamage(dmg * 0.9, true);
           carB.takeDamage(dmg * 0.9, true);
+          if (speed > 14) {
+            if (carA.isPlayer && !carB.alive) carA.wrecks++;
+            if (carB.isPlayer && !carA.alive) carB.wrecks++;
+          }
           const mid = a.position.vadd(b.position).scale(0.5);
           const pushA = a.position.vsub(mid);
           pushA.y = 0;
@@ -170,9 +246,7 @@ export class Game {
           b.velocity.x -= pushA.x * impulse;
           b.velocity.z -= pushA.z * impulse;
           b.velocity.y += 2.8;
-          if (this.particles) {
-            this.particles.sparks(mid.x, mid.y + 0.5, mid.z, 14);
-          }
+          this.particles?.sparks(mid.x, mid.y + 0.5, mid.z, 14);
           this.audio.crash(Math.min(1, speed / 30));
           if (carA.isPlayer || carB.isPlayer) this.triggerShake(0.18 + Math.min(0.2, speed * 0.008));
         }
@@ -194,7 +268,6 @@ export class Game {
           if (speed > 20) car.takeDamage(2.5, true);
         }
       };
-
       if (carA && propB) hitProp(carA, propB);
       if (carB && propA) hitProp(carB, propA);
     });
@@ -218,6 +291,8 @@ export class Game {
     this.raceTime = 0;
     this.finished = false;
     this.hud.hideResults();
+    document.getElementById('hud')?.classList.remove('hidden');
+    document.getElementById('touch-controls')?.classList.add('in-race');
     this._clock.start();
     this._loop();
   }
@@ -239,6 +314,16 @@ export class Game {
   togglePause() {
     if (this.paused) this.resume();
     else this.pause();
+  }
+
+  dispose() {
+    this.running = false;
+    window.removeEventListener('resize', this._onResize);
+    for (const c of this.cars) c.dispose();
+    this.props.dispose();
+    this.pickups.dispose();
+    this.track.dispose();
+    this.renderer.dispose();
   }
 
   _resize() {
@@ -281,21 +366,26 @@ export class Game {
           this.audio.fire();
         }
       }
-    } else if (p.respawnTimer <= 0) {
+    } else if (!this.isDerby && p.respawnTimer <= 0) {
       this._respawnCar(p);
       this.hud.showMessage('Респаун!', 1.2);
     }
 
-    if (this.input.respawn && p.alive) {
-      const ang = Math.atan2(p.position.z, p.position.x);
-      const pt = this.track.getPointOnTrack(ang, 28);
-      p.respawn({ x: pt.x, z: pt.z, facing: ang + Math.PI / 2 });
+    if (this.input.respawn && p.alive && !this.isDerby) {
+      const idx = this.track.nearestWaypointIndex(p.position.x, p.position.z);
+      const pt = this.track.getWaypoint(idx);
+      const n = this.track.getWaypoint(idx + 1);
+      p.respawn({
+        x: pt.x,
+        z: pt.z,
+        facing: Math.atan2(n.x - pt.x, n.z - pt.z),
+      });
     }
 
     for (const ctrl of this.ai) {
       const car = ctrl.car;
       if (!car.alive) {
-        if (car.respawnTimer <= 0) this._respawnCar(car);
+        if (!this.isDerby && car.respawnTimer <= 0) this._respawnCar(car);
         continue;
       }
       const cmd = ctrl.update(dt);
@@ -311,10 +401,13 @@ export class Game {
     for (const car of this.cars) {
       car.update(dt);
       this.track.checkRamps(car);
-      const lapped = car.updateLap(this.track.lapCheckpoints);
-      if (lapped && car.isPlayer) {
-        this.audio.lap();
-        this.hud.showMessage(`Круг ${Math.min(car.lap, MAX_LAPS)}!`, 1.2);
+      this.track.checkHazards(car, dt);
+      if (!this.isDerby) {
+        const lapped = car.updateLap(this.track.lapCheckpoints);
+        if (lapped && car.isPlayer) {
+          this.audio.lap();
+          this.hud.showMessage(`Круг ${Math.min(car.lap, this.maxLaps)}!`, 1.2);
+        }
       }
     }
 
@@ -322,12 +415,7 @@ export class Game {
     this.particles.update(dt);
     this.pickups.update(dt, this.cars, (car, type) => {
       if (car.isPlayer) {
-        const names = {
-          weapon: 'Ракета!',
-          weapon2: 'Особое оружие!',
-          armor: 'Броня!',
-          boost: 'Ускорение!',
-        };
+        const names = { weapon: 'Ракета!', weapon2: 'Особое оружие!', armor: 'Броня!', boost: 'Ускорение!' };
         this.hud.showMessage(names[type] || 'Бонус!', 1);
         this.audio.pickup();
       }
@@ -337,6 +425,7 @@ export class Game {
         this.hud.showMessage('Попадание!', 0.7);
         this.triggerShake(0.16);
         this.audio.explosion();
+        if (!hit.alive) owner.wrecks++;
       }
       if (hit.isPlayer) {
         this.hud.showMessage('Тебя ранили!', 0.7);
@@ -345,11 +434,9 @@ export class Game {
       }
     });
 
-    // Engine audio
     const spd01 = Math.min(1, Math.abs(p.speed) / 45);
     this.audio.engine(p.alive ? spd01 : 0, p._boosting);
 
-    // Sun follow player lightly for shadow quality
     if (this.sun && this.renderer.shadowMap.enabled) {
       this.sun.position.set(p.position.x + 30, 55, p.position.z + 20);
       this.sun.target.position.set(p.position.x, 0, p.position.z);
@@ -357,35 +444,111 @@ export class Game {
     }
 
     this._updateCamera(dt);
-    this.hud.update(dt, this.player, this._getPlace(this.player), this.raceTime, MAX_LAPS);
+    const place = this.isDerby ? this._derbyPlace() : this._getPlace(this.player);
+    this.hud.update(dt, this.player, place, this.raceTime, this.maxLaps, {
+      destruction: this.props.destructionScore,
+      derby: this.isDerby,
+      aliveCount: this.cars.filter((c) => c.alive).length,
+    });
 
-    if (!this.finished && this.player.lap > MAX_LAPS) {
-      this.finished = true;
-      const place = this._getPlace(this.player);
-      this.audio.finish();
-      this.hud.showResults({
-        place,
-        time: this.raceTime,
-        name: this.player.name,
-        standings: this._standings(),
-      });
+    if (!this.finished) {
+      if (this.isDerby) this._checkDerbyEnd();
+      else if (this.player.lap > this.maxLaps) this._finishRace();
     }
+  }
+
+  _checkDerbyEnd() {
+    const alive = this.cars.filter((c) => c.alive);
+    // End if player dead, or only 1 left, or timeout 3 min
+    if (!this.player.alive) {
+      this.derbyEndTimer += 0.016;
+      if (this.derbyEndTimer > 1.5) this._finishDerby();
+    } else if (alive.length <= 1) {
+      this._finishDerby();
+    } else if (this.raceTime > 180) {
+      this._finishDerby();
+    }
+  }
+
+  _derbyPlace() {
+    // Rank by: alive first, then wrecks + destruction attribution approx by wrecks
+    const sorted = [...this.cars].sort((a, b) => {
+      if (a.alive !== b.alive) return a.alive ? -1 : 1;
+      return (b.wrecks || 0) - (a.wrecks || 0);
+    });
+    return sorted.indexOf(this.player) + 1;
+  }
+
+  _finishDerby() {
+    this.finished = true;
+    const place = this._derbyPlace();
+    const destruction = this.props.destructionScore + this.player.wrecks * 20;
+    this.audio.finish();
+    const result = {
+      mode: 'derby',
+      place,
+      time: this.raceTime,
+      destruction,
+      medal: place === 1 ? 'gold' : place === 2 ? 'silver' : place <= 3 ? 'bronze' : null,
+      standings: this._derbyStandings(),
+      name: this.player.name,
+    };
+    this.hud.showResults(result);
+    this.options.onFinish?.(result);
+  }
+
+  _finishRace() {
+    this.finished = true;
+    const place = this._getPlace(this.player);
+    const destruction = this.props.destructionScore;
+    const medal = calcMedal(place, destruction, this.options.needPlace || 3);
+    this.audio.finish();
+    const result = {
+      mode: this.options.mode,
+      cupId: this.options.cupId,
+      place,
+      time: this.raceTime,
+      destruction,
+      medal,
+      needPlace: this.options.needPlace,
+      standings: this._standings(),
+      name: this.player.name,
+    };
+    this.hud.showResults(result);
+    this.options.onFinish?.(result);
   }
 
   _standings() {
     return [...this.cars]
       .sort((a, b) => b.progress - a.progress)
-      .map((c, i) => ({ place: i + 1, name: c.name, lap: Math.min(c.lap, MAX_LAPS) }));
+      .map((c, i) => ({
+        place: i + 1,
+        name: c.name,
+        lap: Math.min(c.lap, this.maxLaps),
+        extra: `круг ${Math.min(c.lap, this.maxLaps)}`,
+      }));
+  }
+
+  _derbyStandings() {
+    return [...this.cars]
+      .sort((a, b) => {
+        if (a.alive !== b.alive) return a.alive ? -1 : 1;
+        return (b.wrecks || 0) - (a.wrecks || 0);
+      })
+      .map((c, i) => ({
+        place: i + 1,
+        name: c.name,
+        lap: c.wrecks || 0,
+        extra: c.alive ? 'жив' : `разбито: ${c.wrecks || 0}`,
+      }));
   }
 
   _respawnCar(car) {
-    const ang = Math.atan2(car.position.z, car.position.x);
-    const r = Math.hypot(car.position.x, car.position.z);
-    const useAng = r > 10 && r < 45 ? ang : -Math.PI / 2;
-    const pt = this.track.getPointOnTrack(useAng, 28);
-    const fx = -Math.sin(useAng);
-    const fz = Math.cos(useAng);
-    car.respawn({ x: pt.x, z: pt.z, facing: Math.atan2(fx, fz) });
+    const idx = this.track.nearestWaypointIndex(car.position.x, car.position.z);
+    const pt = this.track.getWaypoint(idx);
+    const n = this.track.getWaypoint(idx + 1);
+    const facing = Math.atan2(n.x - pt.x, n.z - pt.z);
+    car.respawn({ x: pt.x, z: pt.z, facing });
   }
 
   _getPlace(car) {
@@ -401,9 +564,7 @@ export class Game {
       car.position.y + 5.8,
       car.position.z - fwd.z * 9.5
     );
-    if (!car.alive) {
-      target.set(car.spawnPos.x, 18, car.spawnPos.z - 10);
-    }
+    if (!car.alive) target.set(car.spawnPos.x, 18, car.spawnPos.z - 10);
     if (this.shakeTime > 0) {
       const s = this.shakeTime * 10;
       target.x += Math.sin(s * 37) * 0.2;
@@ -411,7 +572,6 @@ export class Game {
     }
     this._camPos.lerp(target, 1 - Math.pow(0.001, dt));
     this.camera.position.copy(this._camPos);
-
     const look = new THREE.Vector3(
       car.position.x + fwd.x * 7,
       car.position.y + 1.3,
@@ -419,8 +579,6 @@ export class Game {
     );
     this._camLook.lerp(look, 1 - Math.pow(0.0005, dt));
     this.camera.lookAt(this._camLook);
-
-    // FOV punch on boost
     const want = this.baseFov + this.fovPunch;
     this.camera.fov += (want - this.camera.fov) * Math.min(1, 10 * dt);
     this.camera.updateProjectionMatrix();

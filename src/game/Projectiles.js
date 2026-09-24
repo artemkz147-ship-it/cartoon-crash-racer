@@ -51,7 +51,7 @@ export class Projectiles {
       target,
       life: 4,
       homing: 14,
-      damage: 38,
+      damage: 38 * (shot.power || 1),
       aoe: 5.5,
     });
   }
@@ -75,7 +75,7 @@ export class Projectiles {
         target: null,
         life: 0.9,
         homing: 0,
-        damage: 14,
+        damage: 14 * (shot.power || 1),
         aoe: 2.2,
       });
     }

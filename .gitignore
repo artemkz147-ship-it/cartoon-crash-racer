@@ -35,3 +35,7 @@ android/captures
 *.aab
 dist-apk/
 .capacitor
+
+# Keep release.jks tracked for CI sideload signing (indie)
+!android/keystore/
+!android/keystore/release.jks

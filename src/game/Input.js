@@ -265,10 +265,12 @@ export class Input {
 
   /** Analog steer for smoother touch feel (-1..1). */
   get steerAxis() {
-    if (Math.abs(this.touchSteer) > 0.05) return this.touchSteer;
-    if (this.left && !this.right) return -1;
-    if (this.right && !this.left) return 1;
-    return 0;
+    const sens = window.__steerSensitivity || 1;
+    let v = 0;
+    if (Math.abs(this.touchSteer) > 0.05) v = this.touchSteer;
+    else if (this.left && !this.right) v = -1;
+    else if (this.right && !this.left) v = 1;
+    return Math.max(-1, Math.min(1, v * sens));
   }
 
   /** Analog throttle (-1..1). */

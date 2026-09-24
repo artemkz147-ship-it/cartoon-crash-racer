@@ -1,58 +1,77 @@
 import './style.css';
 import { Game } from './game/Game.js';
+import { Menu } from './game/Menu.js';
+import { getSettings } from './game/Progress.js';
 
 const canvas = document.getElementById('game-canvas');
-const startScreen = document.getElementById('start-screen');
-const startBtn = document.getElementById('start-btn');
 const pauseOverlay = document.getElementById('pause-overlay');
 const resumeBtn = document.getElementById('resume-btn');
-const resultsScreen = document.getElementById('results-screen');
-const againBtn = document.getElementById('again-btn');
+const hud = document.getElementById('hud');
+const muteBtn = document.getElementById('mute-btn');
+const pauseBtn = document.getElementById('pause-btn');
 
 let game = null;
 
-function boot() {
-  game = new Game(canvas);
-  game.renderer.render(game.scene, game.camera);
+function setRaceUI(visible) {
+  hud?.classList.toggle('hidden', !visible);
+  muteBtn?.classList.toggle('hidden', !visible);
+  pauseBtn?.classList.toggle('hidden', !visible);
 }
 
-function startGame() {
-  startScreen.classList.add('hidden');
-  resultsScreen?.classList.add('hidden');
-  if (!game) boot();
-  // Soft reset cars if restarting
-  if (game.finished) {
-    location.reload();
-    return;
+function quitToMenu() {
+  if (game) {
+    try {
+      game.dispose();
+    } catch (_) {}
+    game = null;
+  }
+  setRaceUI(false);
+  pauseOverlay?.classList.add('hidden');
+  menu?.show();
+}
+
+function startRace(opts) {
+  if (game) {
+    try {
+      game.dispose();
+    } catch (_) {}
+    game = null;
+  }
+  setRaceUI(true);
+  const settings = getSettings();
+  window.__steerSensitivity = settings.sensitivity || 1;
+
+  game = new Game(canvas, {
+    ...opts,
+    onFinish: (result) => {
+      setTimeout(() => {
+        setRaceUI(false);
+        if (game) {
+          try {
+            game.dispose();
+          } catch (_) {}
+          game = null;
+        }
+        menu.showResults(result);
+      }, 900);
+    },
+  });
+
+  if (settings.muted) {
+    game.audio.ensure();
+    game.audio.setMuted(true);
+    window.__applyMute?.(true);
   }
   game.audio.ensure();
   game.start();
   try {
-    if (screen.orientation?.lock) {
-      screen.orientation.lock('landscape').catch(() => {});
-    }
+    screen.orientation?.lock?.('landscape').catch(() => {});
   } catch (_) {}
 }
 
-startBtn.addEventListener('click', startGame);
-startBtn.addEventListener('pointerup', (e) => {
-  if (!startScreen.classList.contains('hidden')) {
-    e.preventDefault();
-    startGame();
-  }
-});
-
-startScreen.addEventListener('pointerup', (e) => {
-  if (e.target === startBtn) return;
-  if (e.target.closest('button')) return;
-  if (
-    e.target === startScreen ||
-    e.target.tagName === 'H1' ||
-    e.target.classList.contains('subtitle')
-  ) {
-    startGame();
-  }
-});
+const menu = new Menu({ onStartRace: startRace });
+setRaceUI(false);
+menu.show();
 
 resumeBtn?.addEventListener('click', () => {
   pauseOverlay.classList.add('hidden');
@@ -65,16 +84,14 @@ pauseOverlay?.addEventListener('pointerup', (e) => {
   }
 });
 
-againBtn?.addEventListener('click', () => {
-  location.reload();
-});
-againBtn?.addEventListener('pointerup', (e) => {
-  e.preventDefault();
-  location.reload();
+document.getElementById('again-btn')?.addEventListener('click', () => quitToMenu());
+document.getElementById('quit-btn')?.addEventListener('click', () => {
+  pauseOverlay.classList.add('hidden');
+  quitToMenu();
 });
 
 window.__showPauseOverlay = (show) => {
   pauseOverlay?.classList.toggle('hidden', !show);
 };
 
-boot();
+pauseBtn?.addEventListener('click', () => game?.togglePause());
