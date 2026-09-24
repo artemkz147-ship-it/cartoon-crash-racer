@@ -96,38 +96,39 @@ export class DestructibleProps {
     this.scene.remove(item.mesh);
     this.world.removeBody(item.body);
 
-    const count = item.type === 'barrier' ? 8 : 6;
+    const count = item.type === 'barrier' ? 12 : 9;
     const origin = item.body.position;
     for (let i = 0; i < count; i++) {
-      const piece = makeDebrisPiece(item.color, 0.25 + Math.random() * 0.25);
+      const pieceSize = 0.4 + Math.random() * 0.45;
+      const piece = makeDebrisPiece(item.color, pieceSize);
       piece.position.set(origin.x, origin.y + 0.3, origin.z);
       this.scene.add(piece);
 
-      const size = 0.2;
+      const size = pieceSize * 0.45;
       const body = new CANNON.Body({
-        mass: 2,
+        mass: 3.5,
         shape: new CANNON.Box(new CANNON.Vec3(size, size, size)),
-        linearDamping: 0.2,
-        angularDamping: 0.2,
+        linearDamping: 0.15,
+        angularDamping: 0.15,
       });
       body.position.set(
-        origin.x + (Math.random() - 0.5) * 0.6,
-        origin.y + 0.4 + Math.random() * 0.4,
-        origin.z + (Math.random() - 0.5) * 0.6
+        origin.x + (Math.random() - 0.5) * 0.9,
+        origin.y + 0.5 + Math.random() * 0.6,
+        origin.z + (Math.random() - 0.5) * 0.9
       );
-      const force = impactVel || { x: 0, y: 4, z: 0 };
+      const force = impactVel || { x: 0, y: 6, z: 0 };
       body.velocity.set(
-        force.x * 0.3 + (Math.random() - 0.5) * 8,
-        4 + Math.random() * 6,
-        force.z * 0.3 + (Math.random() - 0.5) * 8
+        force.x * 0.4 + (Math.random() - 0.5) * 12,
+        6 + Math.random() * 9,
+        force.z * 0.4 + (Math.random() - 0.5) * 12
       );
       body.angularVelocity.set(
-        (Math.random() - 0.5) * 10,
-        (Math.random() - 0.5) * 10,
-        (Math.random() - 0.5) * 10
+        (Math.random() - 0.5) * 14,
+        (Math.random() - 0.5) * 14,
+        (Math.random() - 0.5) * 14
       );
       this.world.addBody(body);
-      this.debris.push({ mesh: piece, body, life: 3.5 + Math.random() });
+      this.debris.push({ mesh: piece, body, life: 4.2 + Math.random() });
     }
   }
 
