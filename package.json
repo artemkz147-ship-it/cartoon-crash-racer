@@ -1,17 +1,23 @@
 {
   "name": "cartoon-crash-racer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "cap:sync": "npm run build && npx cap sync android",
+    "cap:open": "npx cap open android",
+    "android:build": "npm run cap:sync"
   },
   "devDependencies": {
     "vite": "^8.3.0"
   },
   "dependencies": {
+    "@capacitor/android": "^6.2.2",
+    "@capacitor/cli": "^6.2.2",
+    "@capacitor/core": "^6.2.2",
     "cannon-es": "^0.20.0",
     "three": "^0.186.0"
   },

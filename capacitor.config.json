@@ -1,0 +1,12 @@
+{
+  "appId": "com.artemkz.cartooncrashracer",
+  "appName": "Мультяшные гонки",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": true,
+    "backgroundColor": "#141428"
+  }
+}

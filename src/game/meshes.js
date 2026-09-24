@@ -145,34 +145,65 @@ export function makePickupMesh(type) {
     armor: 0x44aaff,
     boost: 0xffee44,
   };
+  const color = colors[type] || 0xffffff;
   const mat = new THREE.MeshStandardMaterial({
-    color: colors[type] || 0xffffff,
-    emissive: colors[type] || 0xffffff,
-    emissiveIntensity: 0.45,
-    roughness: 0.35,
+    color,
+    emissive: color,
+    emissiveIntensity: 0.85,
+    roughness: 0.25,
     flatShading: true,
   });
   let geo;
-  if (type === 'weapon') geo = new THREE.ConeGeometry(0.45, 1.0, 6);
-  else if (type === 'armor') geo = new THREE.IcosahedronGeometry(0.55, 0);
-  else geo = new THREE.OctahedronGeometry(0.55, 0);
+  if (type === 'weapon') geo = new THREE.ConeGeometry(0.65, 1.35, 6);
+  else if (type === 'armor') geo = new THREE.IcosahedronGeometry(0.8, 0);
+  else geo = new THREE.OctahedronGeometry(0.8, 0);
 
   const mesh = new THREE.Mesh(geo, mat);
   mesh.castShadow = true;
+  mesh.scale.setScalar(1.15);
+
+  const glow = new THREE.Mesh(
+    new THREE.SphereGeometry(1.15, 12, 12),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.22,
+      depthWrite: false,
+    })
+  );
+
   const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(0.7, 0.06, 6, 16),
+    new THREE.TorusGeometry(1.05, 0.1, 8, 24),
     new THREE.MeshStandardMaterial({
-      color: colors[type],
-      emissive: colors[type],
-      emissiveIntensity: 0.6,
+      color,
+      emissive: color,
+      emissiveIntensity: 1.0,
     })
   );
   ring.rotation.x = Math.PI / 2;
+
+  // Outer pulse disk for visibility at distance
+  const disk = new THREE.Mesh(
+    new THREE.CircleGeometry(1.3, 20),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.28,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+  );
+  disk.rotation.x = -Math.PI / 2;
+  disk.position.y = -0.55;
+
   const g = new THREE.Group();
+  g.add(glow);
   g.add(mesh);
   g.add(ring);
+  g.add(disk);
   g.userData.inner = mesh;
   g.userData.ring = ring;
+  g.userData.glow = glow;
   return g;
 }
 

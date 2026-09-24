@@ -2,13 +2,25 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Мультяшные гонки с разрушениями</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#141428" />
+    <title>Мультяшные гонки</title>
+    <style>
+      /* Early lock against overscroll before CSS loads */
+      html, body { touch-action: none; overscroll-behavior: none; }
+    </style>
   </head>
   <body>
     <div id="app">
       <canvas id="game-canvas"></canvas>
+
       <div id="hud">
         <div class="hud-panel left">
           <div class="stat"><span class="label">Здоровье</span><div class="bar"><div id="health-bar" class="fill health"></div></div><span id="health-val">100</span></div>
@@ -23,18 +35,59 @@
         </div>
         <div id="message" class="message hidden"></div>
         <div id="controls-hint" class="controls-hint">
-          <strong>Управление</strong>
+          <strong>Клавиатура (ПК)</strong>
           <span>WASD / стрелки — езда</span>
           <span>Space / Shift — ускорение</span>
           <span>ЛКМ / F — стрельба</span>
-          <span>R — респаун</span>
+          <span>R — респаун · P — пауза</span>
         </div>
       </div>
+
+      <button id="pause-btn" type="button" aria-label="Пауза" title="Пауза">⏸</button>
+
+      <!-- Mobile multitouch HUD -->
+      <div id="touch-controls" aria-hidden="true">
+        <div class="touch-left">
+          <div id="joystick" class="joystick" data-control="joystick">
+            <div id="joystick-knob" class="joystick-knob"></div>
+            <span class="joy-label">РУЛЬ</span>
+          </div>
+          <div class="steer-pads">
+            <button type="button" id="btn-steer-left" class="touch-btn steer" data-control="left" aria-label="Влево">◀</button>
+            <button type="button" id="btn-steer-right" class="touch-btn steer" data-control="right" aria-label="Вправо">▶</button>
+          </div>
+        </div>
+        <div class="touch-right">
+          <button type="button" id="btn-fire" class="touch-btn action fire" data-control="fire" aria-label="Огонь">🔥</button>
+          <button type="button" id="btn-boost" class="touch-btn action boost" data-control="boost" aria-label="Ускорение">⚡</button>
+          <button type="button" id="btn-gas" class="touch-btn action gas" data-control="gas" aria-label="Газ">▲ ГАЗ</button>
+          <button type="button" id="btn-brake" class="touch-btn action brake" data-control="brake" aria-label="Тормоз">▼ ТОРМ</button>
+          <button type="button" id="btn-respawn" class="touch-btn action respawn" data-control="respawn" aria-label="Респаун">↺</button>
+        </div>
+      </div>
+
+      <div id="pause-overlay" class="overlay hidden">
+        <h2>Пауза</h2>
+        <p>Нажмите, чтобы продолжить</p>
+        <button id="resume-btn" type="button">ПРОДОЛЖИТЬ</button>
+      </div>
+
       <div id="start-screen">
-        <h1>Мультяшные гонки<br/>с разрушениями</h1>
-        <p class="subtitle">FlatOut × Crash Team Racing — прототип</p>
-        <button id="start-btn">СТАРТ!</button>
-        <p class="hint">Тарань соперников, круши ящики, собирай бонусы</p>
+        <h1>Мультяшные гонки</h1>
+        <p class="subtitle">Тарань · Круши · Собирай бонусы</p>
+        <div class="start-controls-diagram">
+          <div class="col">
+            <strong>Слева</strong>
+            <span>Джойстик / ◀ ▶ — руль</span>
+          </div>
+          <div class="col">
+            <strong>Справа</strong>
+            <span>ГАЗ · ТОРМОЗ</span>
+            <span>⚡ ускорение · 🔥 огонь</span>
+          </div>
+        </div>
+        <button id="start-btn" type="button">НАЖМИ, ЧТОБЫ СТАРТ</button>
+        <p class="hint">Режим телефона · альбомная ориентация · 3 круга</p>
       </div>
     </div>
     <script type="module" src="/src/main.js"></script>

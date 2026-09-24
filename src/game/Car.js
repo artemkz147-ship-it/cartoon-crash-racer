@@ -158,10 +158,11 @@ export class Car {
       this.body.velocity.y -= 20 * dt;
     }
 
-    const maxSpeed = this._boosting ? 42 : 28;
-    const accel = this._boosting ? 55 : 38;
-    const brake = 45;
-    const steerSpeed = 2.6;
+    // Touch-friendly: snappier steer, stronger accel, softer coast
+    const maxSpeed = this._boosting ? 46 : 30;
+    const accel = this._boosting ? 62 : 44;
+    const brake = 52;
+    const steerSpeed = 3.15;
 
     const fwd = this.forward;
     const speed = this.body.velocity.dot(fwd);
@@ -184,12 +185,14 @@ export class Car {
     }
 
     // Steering scales with speed
-    const steerFactor = Math.min(1, Math.abs(speed) / 8 + 0.15);
-    if (Math.abs(this._steer) > 0.05) {
+    const steerFactor = Math.min(1, Math.abs(speed) / 6 + 0.22);
+    if (Math.abs(this._steer) > 0.04) {
       const dir = speed >= -1 ? 1 : -1;
-      this.body.angularVelocity.y = -this._steer * steerSpeed * steerFactor * dir;
+      // Blend toward target yaw rate for smoother analog stick
+      const targetYaw = -this._steer * steerSpeed * steerFactor * dir;
+      this.body.angularVelocity.y += (targetYaw - this.body.angularVelocity.y) * Math.min(1, 14 * dt);
     } else {
-      this.body.angularVelocity.y *= 0.85;
+      this.body.angularVelocity.y *= 0.78;
     }
 
     if (this._boosting) {
