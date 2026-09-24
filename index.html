@@ -13,7 +13,6 @@
     <meta name="theme-color" content="#141428" />
     <title>Мультяшные гонки</title>
     <style>
-      /* Early lock against overscroll before CSS loads */
       html, body { touch-action: none; overscroll-behavior: none; }
     </style>
   </head>
@@ -43,9 +42,9 @@
         </div>
       </div>
 
+      <button id="mute-btn" type="button" aria-label="Звук" title="Звук">🔊</button>
       <button id="pause-btn" type="button" aria-label="Пауза" title="Пауза">⏸</button>
 
-      <!-- Mobile multitouch HUD -->
       <div id="touch-controls" aria-hidden="true">
         <div class="touch-left">
           <div id="joystick" class="joystick" data-control="joystick">
@@ -72,22 +71,34 @@
         <button id="resume-btn" type="button">ПРОДОЛЖИТЬ</button>
       </div>
 
+      <div id="results-screen" class="overlay hidden">
+        <h2 id="results-title">Финиш!</h2>
+        <p id="results-time" class="results-time"></p>
+        <div id="results-body" class="results-body"></div>
+        <button id="again-btn" type="button">ЕЩЁ РАЗ</button>
+      </div>
+
       <div id="start-screen">
         <h1>Мультяшные гонки</h1>
-        <p class="subtitle">Тарань · Круши · Собирай бонусы</p>
+        <p class="subtitle">Тарань · Круши · Собирай бонусы · v0.3</p>
         <div class="start-controls-diagram">
+          <div class="col">
+            <strong>Как играть</strong>
+            <span>3 круга по арене</span>
+            <span>Тарань соперников</span>
+            <span>Ломай ящики и стены</span>
+            <span>Бери ракеты / мины / дробь</span>
+          </div>
           <div class="col">
             <strong>Слева</strong>
             <span>Джойстик / ◀ ▶ — руль</span>
-          </div>
-          <div class="col">
-            <strong>Справа</strong>
+            <strong style="margin-top:6px">Справа</strong>
             <span>ГАЗ · ТОРМОЗ</span>
-            <span>⚡ ускорение · 🔥 огонь</span>
+            <span>⚡ буст · 🔥 огонь</span>
           </div>
         </div>
-        <button id="start-btn" type="button">НАЖМИ, ЧТОБЫ СТАРТ</button>
-        <p class="hint">Режим телефона · альбомная ориентация · 3 круга</p>
+        <button id="start-btn" type="button">СТАРТ</button>
+        <p class="hint">Телефон · альбомная ориентация · держи горизонт</p>
       </div>
     </div>
     <script type="module" src="/src/main.js"></script>

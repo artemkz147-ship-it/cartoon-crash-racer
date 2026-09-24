@@ -6,6 +6,8 @@ const startScreen = document.getElementById('start-screen');
 const startBtn = document.getElementById('start-btn');
 const pauseOverlay = document.getElementById('pause-overlay');
 const resumeBtn = document.getElementById('resume-btn');
+const resultsScreen = document.getElementById('results-screen');
+const againBtn = document.getElementById('again-btn');
 
 let game = null;
 
@@ -16,9 +18,15 @@ function boot() {
 
 function startGame() {
   startScreen.classList.add('hidden');
+  resultsScreen?.classList.add('hidden');
   if (!game) boot();
+  // Soft reset cars if restarting
+  if (game.finished) {
+    location.reload();
+    return;
+  }
+  game.audio.ensure();
   game.start();
-  // Attempt landscape lock on supported browsers / Capacitor WebView
   try {
     if (screen.orientation?.lock) {
       screen.orientation.lock('landscape').catch(() => {});
@@ -28,19 +36,20 @@ function startGame() {
 
 startBtn.addEventListener('click', startGame);
 startBtn.addEventListener('pointerup', (e) => {
-  // Extra tap path for stubborn mobile browsers
   if (!startScreen.classList.contains('hidden')) {
     e.preventDefault();
     startGame();
   }
 });
 
-// Tap anywhere on start screen also starts
 startScreen.addEventListener('pointerup', (e) => {
   if (e.target === startBtn) return;
   if (e.target.closest('button')) return;
-  // require deliberate tap on empty area or title
-  if (e.target === startScreen || e.target.tagName === 'H1' || e.target.classList.contains('subtitle')) {
+  if (
+    e.target === startScreen ||
+    e.target.tagName === 'H1' ||
+    e.target.classList.contains('subtitle')
+  ) {
     startGame();
   }
 });
@@ -56,7 +65,14 @@ pauseOverlay?.addEventListener('pointerup', (e) => {
   }
 });
 
-// Expose pause overlay toggle for Game
+againBtn?.addEventListener('click', () => {
+  location.reload();
+});
+againBtn?.addEventListener('pointerup', (e) => {
+  e.preventDefault();
+  location.reload();
+});
+
 window.__showPauseOverlay = (show) => {
   pauseOverlay?.classList.toggle('hidden', !show);
 };
