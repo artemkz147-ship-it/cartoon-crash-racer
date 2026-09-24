@@ -54,9 +54,9 @@ export class Menu {
 
   _main(p) {
     return `
-      <div class="menu-panel main-menu">
+      <div class="menu-panel main-menu menu-fade">
         <h1>Мультяшные гонки</h1>
-        <p class="subtitle">FlatOut × CTR · карьера · дерби · гараж · v1.2</p>
+        <p class="subtitle">FlatOut × CTR · карьера · дерби · гараж · v1.3</p>
         <div class="menu-stats">
           <span>🏅 Медалей: ${p.medals || 0}</span>
           <span>🏆 Кубков: ${p.cupsCleared || 0}/12</span>
@@ -92,7 +92,7 @@ export class Menu {
         </button>`;
     }).join('');
     return `
-      <div class="menu-panel wide">
+      <div class="menu-panel wide menu-fade">
         <button class="back-btn" data-go="main">← Назад</button>
         <h2>Карьера — 12 кубков</h2>
         <p class="subtitle">Финиш в топ-N открывает следующий. Медали за место + разрушения.</p>
@@ -109,7 +109,7 @@ export class Menu {
         </button>`
     ).join('');
     return `
-      <div class="menu-panel wide">
+      <div class="menu-panel wide menu-fade">
         <button class="back-btn" data-go="main">← Назад</button>
         <h2>Быстрая гонка</h2>
         <div class="track-grid">${tracks}</div>
@@ -129,7 +129,7 @@ export class Menu {
         </button>`
     ).join('');
     return `
-      <div class="menu-panel">
+      <div class="menu-panel menu-fade">
         <button class="back-btn" data-go="main">← Назад</button>
         <h2>Дерби</h2>
         <p class="subtitle">Арена · последний выживший · очки за разгром</p>
@@ -157,7 +157,7 @@ export class Menu {
         </button>`;
     }).join('');
     return `
-      <div class="menu-panel wide">
+      <div class="menu-panel wide menu-fade">
         <button class="back-btn" data-go="main">← Назад</button>
         <h2>Гараж</h2>
         <p class="subtitle">Выбрано: <strong>${getCar(selected).name}</strong></p>
@@ -175,7 +175,7 @@ export class Menu {
   _settings(p) {
     const s = p.settings || { muted: false, sensitivity: 1 };
     return `
-      <div class="menu-panel">
+      <div class="menu-panel menu-fade">
         <button class="back-btn" data-go="main">← Назад</button>
         <h2>Настройки</h2>
         <label class="setting-row">
@@ -186,7 +186,7 @@ export class Menu {
           <span>Чувств. руля: <b id="sens-val">${s.sensitivity.toFixed(1)}</b></span>
           <input type="range" id="set-sens" min="0.5" max="1.5" step="0.1" value="${s.sensitivity}"/>
         </label>
-        <p class="hint settings-hint">Руль слева · ГАЗ/ТОРМ/⚡/🔥 справа · ⏸ пауза сверху<br/>v1.2.0 · continuous road · juice · smarter AI</p>
+        <p class="hint settings-hint">Руль слева · ГАЗ/ТОРМ/⚡/🔥 справа · ⏸ пауза сверху<br/>v1.3.0 · continuous road · juice · smarter AI</p>
         <button class="menu-btn secondary" data-action="reset-progress">Сбросить прогресс</button>
       </div>`;
   }
@@ -201,7 +201,7 @@ export class Menu {
       )
       .join('');
     return `
-      <div class="menu-panel">
+      <div class="menu-panel menu-fade">
         <h2>${r.place === 1 ? '🏆 Победа!' : 'Финиш'}</h2>
         <p class="results-time">Место: ${r.place} · ${medal}</p>
         <p>Время: ${formatTime(r.time || 0)} · Разрушения: ${r.destruction || 0}</p>

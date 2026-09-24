@@ -1,5 +1,9 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { Input } from './Input.js';
 import { Track } from './Track.js';
 import { Car } from './Car.js';
@@ -60,6 +64,10 @@ export class Game {
     this.renderer.shadowMap.enabled = !isMobile;
     if (!isMobile) this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this._isMobile = isMobile;
+    this._fpsEMA = 60;
+    this._fpsSample = 0;
+    this.composer = null;
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(
@@ -78,7 +86,27 @@ export class Game {
     this.particles = new Particles(this.scene);
     this.track = new Track(this.scene, this.world, this.options.trackId);
     this.renderer.setClearColor(this.track.cfg.clear, 1);
-    this.scene.fog = new THREE.Fog(this.track.cfg.fog, 70, 150);
+    const fogNear = this.track.cfg.fogNear || 55;
+    const fogFar = this.track.cfg.fogFar || 140;
+    this.scene.fog = new THREE.Fog(this.track.cfg.fog, fogNear, fogFar);
+    // Soft bloom on desktop only (mobile: emissive glow already in meshes)
+    if (!isMobile) {
+      try {
+        this.composer = new EffectComposer(this.renderer);
+        this.composer.addPass(new RenderPass(this.scene, this.camera));
+        const bloom = new UnrealBloomPass(
+          new THREE.Vector2(window.innerWidth, window.innerHeight),
+          0.28, // strength
+          0.55, // radius
+          0.82  // threshold — only bright emissives bloom
+        );
+        this.composer.addPass(bloom);
+        this.composer.addPass(new OutputPass());
+        this._bloomPass = bloom;
+      } catch (_) {
+        this.composer = null;
+      }
+    }
 
     this.props = new DestructibleProps(this.scene, this.world, this.particles, this.track);
     this.props.onExplode = (x, y, z, r) => {
@@ -175,6 +203,7 @@ export class Game {
           c.respawnTimer = 9999;
         }
       };
+      car.trackRef = this.track;
       this.cars.push(car);
       if (cfg.isPlayer) this.player = car;
     }
@@ -377,14 +406,33 @@ export class Game {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
+    if (this.composer) {
+      this.composer.setSize(w, h);
+      this.composer.setPixelRatio?.(Math.min(window.devicePixelRatio || 1, this._isMobile ? 1.35 : 2));
+    }
   }
 
   _loop = () => {
     if (!this.running || this.paused) return;
     requestAnimationFrame(this._loop);
     const dt = Math.min(0.05, this._clock.getDelta());
+    // FPS EMA for auto particle quality
+    if (dt > 0) {
+      const fps = 1 / dt;
+      this._fpsEMA = this._fpsEMA * 0.92 + fps * 0.08;
+      this._fpsSample += dt;
+      if (this._fpsSample > 0.75) {
+        this._fpsSample = 0;
+        const q = this._fpsEMA < 40 ? 0.4 : this._fpsEMA < 50 ? 0.65 : 1;
+        this.particles.setQuality?.(q);
+        if (this._isMobile && this._fpsEMA < 38) {
+          this.renderer.setPixelRatio(Math.min(this.renderer.getPixelRatio(), 1.1));
+        }
+      }
+    }
     this._update(dt);
-    this.renderer.render(this.scene, this.camera);
+    if (this.composer) this.composer.render();
+    else this.renderer.render(this.scene, this.camera);
   };
 
   _update(dt) {
@@ -445,10 +493,27 @@ export class Game {
 
     this.world.step(1 / 60, dt, 3);
 
+    // Draft: slight speed bonus when tucked behind a rival
+    this._applyDraft(dt);
+
     for (const car of this.cars) {
+      const landWas = car._landPunch;
       car.update(dt);
+      if (car.isPlayer && car._landPunch > 0.9 && landWas <= 0) {
+        this.audio.land?.();
+        this.triggerShake(0.12);
+        this.fovPunch = Math.max(this.fovPunch, 2.5);
+      }
       this.track.checkRamps(car);
       this.track.checkHazards(car, dt);
+      if (car.isPlayer && car._onBoostPad) {
+        if (!car._boostPadCool || car._boostPadCool <= 0) {
+          this.fovPunch = Math.max(this.fovPunch, 4);
+          this.audio.boost();
+          car._boostPadCool = 1.2;
+        }
+      }
+      if (car._boostPadCool > 0) car._boostPadCool -= dt;
       if (!this.isDerby) {
         const lapped = car.updateLap(this.track.lapCheckpoints);
         if (lapped && car.isPlayer) {
@@ -458,6 +523,7 @@ export class Game {
       }
     }
 
+    this.props.setLodOrigin?.(this.player.position.x, this.player.position.z);
     this.props.update(dt);
     this.particles.update(dt);
     this.pickups.update(dt, this.cars, (car, type) => {
@@ -601,6 +667,43 @@ export class Game {
   _getPlace(car) {
     const sorted = [...this.cars].sort((a, b) => b.progress - a.progress);
     return sorted.indexOf(car) + 1;
+  }
+
+  _applyDraft(dt) {
+    for (const car of this.cars) {
+      if (!car.alive) continue;
+      const fwd = car.forward;
+      let drafting = false;
+      for (const other of this.cars) {
+        if (other === car || !other.alive) continue;
+        const dx = other.position.x - car.position.x;
+        const dz = other.position.z - car.position.z;
+        const ahead = dx * fwd.x + dz * fwd.z;
+        const side = Math.abs(dx * fwd.z - dz * fwd.x);
+        const d2 = dx * dx + dz * dz;
+        // Tucked behind someone 4..14m ahead, within ~2.5m laterally
+        if (ahead > 4 && ahead < 14 && side < 2.6 && d2 < 200) {
+          drafting = true;
+          break;
+        }
+      }
+      if (drafting && car._throttle > 0.2) {
+        const fwd2 = car.forward;
+        car.body.velocity.x += fwd2.x * 6.5 * dt;
+        car.body.velocity.z += fwd2.z * 6.5 * dt;
+        car._draftTimer = 0.3;
+        if (car.isPlayer && Math.random() < dt * 2) {
+          this.particles?.boostTrail(
+            car.position.x - fwd.x * 1.5,
+            car.position.y + 0.3,
+            car.position.z - fwd.z * 1.5,
+            0xaaddff
+          );
+        }
+      } else {
+        car._draftTimer = Math.max(0, (car._draftTimer || 0) - dt);
+      }
+    }
   }
 
   _updateCamera(dt) {

@@ -14,6 +14,8 @@ export class Particles {
     this.active = [];
     this.skids = [];
     this.trails = [];
+    /** 0.35..1 — auto-lowered when FPS dips */
+    this.quality = 1;
 
     const geo = new THREE.SphereGeometry(0.25, 5, 4);
     const mat = new THREE.MeshBasicMaterial({
@@ -50,6 +52,10 @@ export class Particles {
     this.pool.push(mesh);
   }
 
+  setQuality(q) {
+    this.quality = Math.max(0.3, Math.min(1, q));
+  }
+
   burst(x, y, z, opts = {}) {
     const {
       count = 10,
@@ -60,7 +66,8 @@ export class Particles {
       gravity = 12,
       upward = 4,
     } = opts;
-    for (let i = 0; i < count; i++) {
+    const n = Math.max(1, Math.floor(count * this.quality));
+    for (let i = 0; i < n; i++) {
       const m = this._alloc();
       if (!m) break;
       m.visible = true;

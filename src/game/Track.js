@@ -131,6 +131,21 @@ export class Track {
       }
     }
 
+    // Elevation along centerline (hills / dips / banked feel)
+    const hills = cfg.hills || 0;
+    const hillFreq = cfg.hillFreq || 2;
+    for (let i = 0; i < pts.length; i++) {
+      const t = pts[i].t != null ? pts[i].t : (i / pts.length) * Math.PI * 2;
+      let y = 0;
+      if (hills > 0) {
+        y = hills * (0.55 * Math.sin(t * hillFreq) + 0.35 * Math.sin(t * hillFreq * 0.5 + 0.7)
+          + 0.18 * Math.sin(t * (hillFreq * 2.2) + 1.3));
+        if (cfg.banks) y += hills * 0.12 * Math.sin(t * 2);
+      }
+      pts[i].y = y;
+      pts[i].elev = y;
+    }
+
     this.waypoints = pts;
     this.centerLine = pts;
     // Approximate radii for AI boundary helpers
@@ -138,9 +153,51 @@ export class Track {
     this.outerR = Math.max(rx, rz) + cfg.width * 0.55;
   }
 
+  /** Sample road height near (x,z). */
+  getHeightAt(x, z) {
+    const pts = this.waypoints;
+    if (!pts.length) return 0;
+    let best = 0;
+    let bestD = Infinity;
+    let second = 0;
+    let secondD = Infinity;
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      const d = (p.x - x) ** 2 + (p.z - z) ** 2;
+      if (d < bestD) {
+        second = best;
+        secondD = bestD;
+        best = i;
+        bestD = d;
+      } else if (d < secondD) {
+        second = i;
+        secondD = d;
+      }
+    }
+    const a = pts[best];
+    const b = pts[second];
+    const da = Math.sqrt(bestD) + 1e-4;
+    const db = Math.sqrt(secondD) + 1e-4;
+    const w = db / (da + db);
+    return (a.y || 0) * w + (b.y || 0) * (1 - w);
+  }
+
+  /** Approximate pitch (radians) along track tangent near (x,z). */
+  getPitchAt(x, z) {
+    const idx = this.nearestWaypointIndex(x, z);
+    const pts = this.waypoints;
+    const a = pts[idx];
+    const b = pts[(idx + 1) % pts.length];
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const dy = (b.y || 0) - (a.y || 0);
+    const horiz = Math.hypot(dx, dz) || 1;
+    return Math.atan2(dy, horiz);
+  }
+
   _buildSky() {
     const cfg = this.cfg;
-    const geo = new THREE.SphereGeometry(160, 24, 12);
+    const geo = new THREE.SphereGeometry(160, 32, 16);
     const cols = [];
     const pos = geo.attributes.position;
     const [tr, tg, tb] = cfg.skyTop;
@@ -189,8 +246,8 @@ export class Track {
   }
 
 
-  /** Continuous ribbon mesh along centerline (left/right offsets). */
-  _makeRibbon(pts, halfW, y, mat, { closed = true, uvScale = 0.08, height = 0 } = {}) {
+  /** Continuous ribbon mesh along centerline (left/right offsets). Uses pt.y elevation. */
+  _makeRibbon(pts, halfW, yBase, mat, { closed = true, uvScale = 0.08, height = 0 } = {}) {
     const n = pts.length;
     const segs = closed ? n : n - 1;
     const positions = [];
@@ -204,17 +261,17 @@ export class Track {
       const prev = pts[(i - 1 + n) % n];
       const cur = pts[i];
       const next = pts[(i + 1) % n];
-      // Average tangent for smooth edges
       let tx = next.x - prev.x;
       let tz = next.z - prev.z;
       if (!closed && i === 0) { tx = next.x - cur.x; tz = next.z - cur.z; }
       if (!closed && i === n - 1) { tx = cur.x - prev.x; tz = cur.z - prev.z; }
       const len = Math.hypot(tx, tz) || 1;
       tx /= len; tz /= len;
-      const nx = tz; // perpendicular (right-ish)
+      const nx = tz;
       const nz = -tx;
-      left.push({ x: cur.x - nx * halfW, z: cur.z - nz * halfW, u: dist });
-      right.push({ x: cur.x + nx * halfW, z: cur.z + nz * halfW, u: dist });
+      const ey = (cur.y != null ? cur.y : 0) + yBase + height;
+      left.push({ x: cur.x - nx * halfW, z: cur.z - nz * halfW, y: ey, u: dist });
+      right.push({ x: cur.x + nx * halfW, z: cur.z + nz * halfW, y: ey, u: dist });
       if (i < n - 1 || closed) {
         const nxt = pts[(i + 1) % n];
         dist += Math.hypot(nxt.x - cur.x, nxt.z - cur.z);
@@ -224,7 +281,7 @@ export class Track {
       const L = left[i];
       const R = right[i];
       const v = L.u * uvScale;
-      positions.push(L.x, y + height, L.z, R.x, y + height, R.z);
+      positions.push(L.x, L.y, L.z, R.x, R.y, R.z);
       normals.push(0, 1, 0, 0, 1, 0);
       uvs.push(0, v, 1, v);
     }
@@ -270,10 +327,12 @@ export class Track {
     const cfg = this.cfg;
     const w = cfg.width;
     const asphaltTex = this._makeAsphaltTexture();
+    const wet = !!cfg.wet;
     const asphaltMat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(cfg.asphalt),
       map: asphaltTex,
-      roughness: 0.9,
+      roughness: wet ? 0.28 : 0.9,
+      metalness: wet ? 0.35 : 0.05,
       flatShading: true,
     });
     const stripeMat = new THREE.MeshStandardMaterial({
@@ -311,11 +370,24 @@ export class Track {
     }
 
     const pts = this.waypoints;
-    // Continuous extruded road strip (merged quads with UVs)
+    // Continuous extruded road strip (merged quads with UVs + elevation)
     const road = this._makeRibbon(pts, w * 0.5, 0.03, asphaltMat, { uvScale: 0.12 });
     this._addMesh(road);
 
-    // Center dashed line as continuous thin ribbon segments
+    // Cheap wet-road reflection fake (glossy translucent overlay)
+    if (wet) {
+      const reflMat = new THREE.MeshStandardMaterial({
+        color: 0x88aacc,
+        roughness: 0.15,
+        metalness: 0.55,
+        transparent: true,
+        opacity: 0.22,
+        flatShading: true,
+      });
+      this._addMesh(this._makeRibbon(pts, w * 0.42, 0.05, reflMat, { uvScale: 0.05 }));
+    }
+
+    // Center dashed line following elevation
     for (let i = 0; i < pts.length; i += 2) {
       const a = pts[i];
       const b = pts[(i + 1) % pts.length];
@@ -324,8 +396,9 @@ export class Track {
       const len = Math.hypot(dx, dz);
       if (len < 0.1) continue;
       const ang = Math.atan2(dx, dz);
+      const ey = ((a.y || 0) + (b.y || 0)) * 0.5;
       const s = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.04, Math.min(2.4, len * 0.55)), stripeMat);
-      s.position.set((a.x + b.x) / 2, 0.06, (a.z + b.z) / 2);
+      s.position.set((a.x + b.x) / 2, ey + 0.06, (a.z + b.z) / 2);
       s.rotation.y = ang;
       this._addMesh(s);
     }
@@ -364,9 +437,10 @@ export class Track {
           new THREE.BoxGeometry(0.5, 0.28, Math.max(0.8, segLen * 0.92)),
           i % 2 === 0 ? curbA : curbB
         );
+        const ey = ((p.y || 0) + (n.y || 0)) * 0.5;
         c.position.set(
           (p.x + n.x) / 2 + nx * side * (w * 0.52),
-          0.14,
+          ey + 0.14,
           (p.z + n.z) / 2 + nz * side * (w * 0.52)
         );
         c.rotation.y = ang;
@@ -389,7 +463,7 @@ export class Track {
       const chev = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.0, 3), chevMat);
       chev.rotation.x = Math.PI / 2;
       chev.rotation.z = ang;
-      chev.position.set(p.x, 0.08, p.z);
+      chev.position.set(p.x, (p.y || 0) + 0.08, p.z);
       this._addMesh(chev);
     }
   }
@@ -439,7 +513,7 @@ export class Track {
       return;
     }
 
-    // Outer + inner walls — jersey barrier silhouette (tapered look via base+top)
+    // Outer + inner walls — jersey silhouette; visuals per-seg, physics every 2 segs (smoother)
     for (let side of [-1, 1]) {
       for (let i = 0; i < pts.length; i++) {
         if (side === -1 && cfg.shortcut && i > pts.length * 0.45 && i < pts.length * 0.55) continue;
@@ -451,28 +525,46 @@ export class Track {
         const ang = Math.atan2(dx, dz);
         const nx = Math.cos(ang);
         const nz = -Math.sin(ang);
+        const elev = ((a.y || 0) + (b.y || 0)) * 0.5;
         const midX = (a.x + b.x) / 2 + nx * side * halfW;
         const midZ = (a.z + b.z) / 2 + nz * side * halfW;
         const bankH = 2.4 + (cfg.banks ? Math.abs(Math.sin(i * 0.3)) * 1.1 : 0);
         const mat = (i + (side > 0 ? 0 : 1)) % 2 ? wallMat : wallMat2;
-        // Base (wider) + upper (narrower) = jersey feel
         const base = new THREE.Mesh(new THREE.BoxGeometry(1.35, bankH * 0.45, len), mat);
-        base.position.set(midX, bankH * 0.22, midZ);
+        base.position.set(midX, elev + bankH * 0.22, midZ);
         base.rotation.y = ang;
         base.castShadow = true;
         this._addMesh(base);
         const upper = new THREE.Mesh(new THREE.BoxGeometry(0.95, bankH * 0.6, len * 0.98), mat);
-        upper.position.set(midX, bankH * 0.65, midZ);
+        upper.position.set(midX, elev + bankH * 0.65, midZ);
         upper.rotation.y = ang;
         upper.castShadow = true;
         this._addMesh(upper);
         const cap = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.14, len * 0.96), topMat);
-        cap.position.set(midX, bankH + 0.05, midZ);
+        cap.position.set(midX, elev + bankH + 0.05, midZ);
         cap.rotation.y = ang;
         this._addMesh(cap);
+      }
+      // Merged physics boxes (2 segments) — fewer seams, smoother slide
+      for (let i = 0; i < pts.length; i += 2) {
+        if (side === -1 && cfg.shortcut && i > pts.length * 0.45 && i < pts.length * 0.55) continue;
+        const a = pts[i];
+        const c = pts[(i + 2) % pts.length];
+        const mid = pts[(i + 1) % pts.length];
+        const dx = c.x - a.x;
+        const dz = c.z - a.z;
+        const len = Math.hypot(dx, dz) * 1.08;
+        if (len < 0.5) continue;
+        const ang = Math.atan2(dx, dz);
+        const nx = Math.cos(ang);
+        const nz = -Math.sin(ang);
+        const elev = ((a.y || 0) + (mid.y || 0) + (c.y || 0)) / 3;
+        const midX = (a.x + c.x) / 2 + nx * side * halfW;
+        const midZ = (a.z + c.z) / 2 + nz * side * halfW;
+        const bankH = 2.6 + (cfg.banks ? Math.abs(Math.sin(i * 0.3)) * 1.0 : 0);
         const body = new CANNON.Body({ mass: 0 });
-        body.addShape(new CANNON.Box(new CANNON.Vec3(0.6, bankH / 2, len / 2)));
-        body.position.set(midX, bankH / 2, midZ);
+        body.addShape(new CANNON.Box(new CANNON.Vec3(0.65, bankH / 2, len / 2)));
+        body.position.set(midX, elev + bankH / 2, midZ);
         body.quaternion.setFromEuler(0, ang, 0);
         this._addBody(body);
       }
@@ -531,15 +623,16 @@ export class Track {
         rail.position.set(sx, 0.95, 0);
         group.add(rail);
       }
-      group.position.set(p.x, 0, p.z);
+      const ey = p.y || 0;
+      group.position.set(p.x, ey, p.z);
       group.rotation.y = ang;
       this._addMesh(group);
       const body = new CANNON.Body({ mass: 0 });
       body.addShape(new CANNON.Box(new CANNON.Vec3(2.3, 0.22, 3.1)));
-      body.position.set(p.x, 0.75, p.z);
+      body.position.set(p.x, ey + 0.75, p.z);
       body.quaternion.setFromEuler(-0.32, ang, 0);
       this._addBody(body);
-      this.ramps.push({ x: p.x, z: p.z, fx, fz, boost: 14 });
+      this.ramps.push({ x: p.x, z: p.z, y: ey, fx, fz, boost: 14 });
     }
   }
 
@@ -576,10 +669,19 @@ export class Track {
         flatShading: true,
       });
       const pad = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.08, 3.5), mat);
-      pad.position.set(p.x, 0.06, p.z);
+      const bey = p.y || 0;
+      pad.position.set(p.x, bey + 0.06, p.z);
       pad.rotation.y = ang;
       this._addMesh(pad);
-      this.hazards.push({ type: 'boost', x: p.x, z: p.z, r: 2.2, ang });
+      // Soft emissive glow halo for boost pads
+      const glow = new THREE.Mesh(
+        new THREE.CircleGeometry(2.0, 16),
+        new THREE.MeshBasicMaterial({ color: 0x44ffaa, transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide })
+      );
+      glow.rotation.x = -Math.PI / 2;
+      glow.position.set(p.x, bey + 0.04, p.z);
+      this._addMesh(glow);
+      this.hazards.push({ type: 'boost', x: p.x, z: p.z, y: bey, r: 2.2, ang });
     }
 
     // Oil slicks
@@ -603,7 +705,7 @@ export class Track {
       });
       const oil = new THREE.Mesh(new THREE.CircleGeometry(1.8, 12), mat);
       oil.rotation.x = -Math.PI / 2;
-      oil.position.set(ox, 0.05, oz);
+      oil.position.set(ox, (p.y || 0) + 0.05, oz);
       this._addMesh(oil);
       this.hazards.push({ type: 'oil', x: ox, z: oz, r: 2.0 });
     }
@@ -835,14 +937,15 @@ export class Track {
         const nz = -Math.sin(ang);
         for (const side of [-1, 1]) {
           const post = new THREE.Mesh(new THREE.BoxGeometry(0.4, 4, 0.4), postMat);
-          post.position.set(p.x + nx * side * 6, 2, p.z + nz * side * 6);
+          const ey = p.y || 0;
+          post.position.set(p.x + nx * side * 6, ey + 2, p.z + nz * side * 6);
           this._addMesh(post);
         }
         const banner = new THREE.Mesh(
           new THREE.BoxGeometry(12, 0.8, 0.2),
           new THREE.MeshStandardMaterial({ color: 0xff3344, flatShading: true })
         );
-        banner.position.set(p.x, 4.2, p.z);
+        banner.position.set(p.x, (p.y || 0) + 4.2, p.z);
         banner.rotation.y = ang;
         this._addMesh(banner);
       }
@@ -879,9 +982,11 @@ export class Track {
           car.body.velocity.z *= 1 - 0.4 * dt;
         } else if (h.type === 'boost') {
           const fwd = car.forward;
-          car.body.velocity.x += fwd.x * 18 * dt;
-          car.body.velocity.z += fwd.z * 18 * dt;
-          if (car.boost < 100) car.boost = Math.min(100, car.boost + 25 * dt);
+          car.body.velocity.x += fwd.x * 22 * dt;
+          car.body.velocity.z += fwd.z * 22 * dt;
+          car.body.velocity.y += 1.2 * dt;
+          if (car.boost < 100) car.boost = Math.min(100, car.boost + 32 * dt);
+          car._onBoostPad = true;
         } else if (h.type === 'lava') {
           car.takeDamage(18 * dt, false);
         }
@@ -956,12 +1061,14 @@ export class Track {
       return {
         px: Math.cos(a) * r,
         pz: Math.sin(a) * r,
+        py: 1.0,
         facing: a + Math.PI,
       };
     }
     return {
       px: p.x - fxx * back + rx * lane,
       pz: p.z - fzz * back + rz * lane,
+      py: (p.y || 0) + 1.0,
       facing: Math.atan2(fxx, fzz),
     };
   }

@@ -791,3 +791,19 @@ body.touch-mode .controls-hint {
 }
 #pause-overlay h2 { letter-spacing: 0.04em; }
 #pause-overlay p { opacity: 0.85; margin-bottom: 14px; }
+
+
+/* v1.3 menu polish */
+.menu-fade {
+  animation: menuIn 0.28s ease-out;
+}
+@keyframes menuIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.menu-btn {
+  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+}
+.menu-btn:active {
+  transform: scale(0.97);
+}

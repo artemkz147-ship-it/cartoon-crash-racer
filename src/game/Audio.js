@@ -1,5 +1,5 @@
 /**
- * Procedural Web Audio v1.2 — richer engine/crash/pickup (still no asset files).
+ * Procedural Web Audio v1.3 — engine/SFX + looped music bed (no asset bloat).
  */
 export class GameAudio {
   constructor() {
@@ -8,7 +8,11 @@ export class GameAudio {
     this._engineNodes = null;
     this._engineGain = null;
     this._master = null;
+    this._musicGain = null;
+    this._musicTimer = null;
+    this._musicStep = 0;
     this._started = false;
+    this.musicEnabled = true;
   }
 
   ensure() {
@@ -20,8 +24,12 @@ export class GameAudio {
       this._master = this.ctx.createGain();
       this._master.gain.value = this.muted ? 0 : 0.38;
       this._master.connect(this.ctx.destination);
+      this._musicGain = this.ctx.createGain();
+      this._musicGain.gain.value = this.muted || !this.musicEnabled ? 0 : 0.11;
+      this._musicGain.connect(this._master);
       this._started = true;
       this._setupEngine();
+      this._startMusic();
     } catch (_) {
       /* ignore */
     }
@@ -30,6 +38,9 @@ export class GameAudio {
   setMuted(m) {
     this.muted = m;
     if (this._master) this._master.gain.value = m ? 0 : 0.38;
+    if (this._musicGain) {
+      this._musicGain.gain.value = m || !this.musicEnabled ? 0 : 0.11;
+    }
   }
 
   toggleMute() {
@@ -37,9 +48,15 @@ export class GameAudio {
     return this.muted;
   }
 
+  setMusicEnabled(on) {
+    this.musicEnabled = on;
+    if (this._musicGain) {
+      this._musicGain.gain.value = this.muted || !on ? 0 : 0.11;
+    }
+  }
+
   _setupEngine() {
     if (!this.ctx || !this._master) return;
-    // Dual-osc engine: low rumble + mid growl
     const oscA = this.ctx.createOscillator();
     oscA.type = 'sawtooth';
     oscA.frequency.value = 52;
@@ -63,6 +80,76 @@ export class GameAudio {
     oscB.start();
     this._engineNodes = { oscA, oscB, filter };
     this._engineGain = gain;
+  }
+
+  /** Tiny chiptune-ish race bed: bass + arpeggio + kick pulse. */
+  _startMusic() {
+    if (!this.ctx || !this._musicGain) return;
+    // C minor pentatonic-ish race motif (Hz)
+    const bass = [130.81, 146.83, 155.56, 174.61, 196.0, 174.61, 155.56, 146.83];
+    const lead = [523.25, 587.33, 622.25, 698.46, 783.99, 698.46, 622.25, 587.33];
+    const stepMs = 180;
+    const tick = () => {
+      if (!this.ctx || this.muted || !this.musicEnabled) {
+        this._musicTimer = setTimeout(tick, stepMs);
+        return;
+      }
+      const i = this._musicStep % 8;
+      const t = this.ctx.currentTime;
+      // Bass
+      this._tone(bass[i], 0.16, 'triangle', 0.07, this._musicGain, t);
+      // Offbeat lead every other
+      if (i % 2 === 0) {
+        this._tone(lead[i] * 0.5, 0.1, 'square', 0.025, this._musicGain, t + 0.02);
+      }
+      // Kick-ish every 4
+      if (i % 4 === 0) {
+        this._tone(70, 0.08, 'sine', 0.06, this._musicGain, t);
+        this._noiseClick(0.04, 0.04, this._musicGain, t);
+      }
+      // Hi-hat tick
+      if (i % 2 === 1) this._noiseClick(0.03, 0.025, this._musicGain, t);
+      this._musicStep++;
+      this._musicTimer = setTimeout(tick, stepMs);
+    };
+    tick();
+  }
+
+  _tone(freq, dur, type, vol, dest, when) {
+    if (!this.ctx || !dest) return;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    const f = this.ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = 2200;
+    osc.type = type;
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(vol, when);
+    g.gain.exponentialRampToValueAtTime(0.001, when + dur);
+    osc.connect(f);
+    f.connect(g);
+    g.connect(dest);
+    osc.start(when);
+    osc.stop(when + dur + 0.02);
+  }
+
+  _noiseClick(dur, vol, dest, when) {
+    if (!this.ctx || !dest) return;
+    const bufLen = Math.floor(this.ctx.sampleRate * dur);
+    const buf = this.ctx.createBuffer(1, bufLen, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufLen);
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const g = this.ctx.createGain();
+    g.gain.value = vol;
+    const hp = this.ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 4000;
+    src.connect(hp);
+    hp.connect(g);
+    g.connect(dest);
+    src.start(when);
   }
 
   engine(speed01, boosting) {
@@ -162,5 +249,10 @@ export class GameAudio {
     [523, 659, 784, 1046].forEach((f, i) => {
       setTimeout(() => this._beep(f, 0.22, 'sine', 0.14), i * 130);
     });
+  }
+
+  land() {
+    this._noiseBurst(0.08, 0.1, 60, 400);
+    this._beep(120, 0.06, 'triangle', 0.05);
   }
 }

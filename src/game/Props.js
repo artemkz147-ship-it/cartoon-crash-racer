@@ -18,7 +18,14 @@ export class DestructibleProps {
     this.debris = [];
     this.destructionScore = 0;
     this.onExplode = null;
+    this._lodOrigin = { x: 0, z: 0 };
+    this._lodDist = 78;
     this._spawnAll();
+  }
+
+  setLodOrigin(x, z) {
+    this._lodOrigin.x = x;
+    this._lodOrigin.z = z;
   }
 
   dispose() {
@@ -248,6 +255,16 @@ export class DestructibleProps {
   }
 
   update(dt) {
+    // Distance LOD — hide far prop meshes (bodies stay for simplicity / few props)
+    const ox = this._lodOrigin.x;
+    const oz = this._lodOrigin.z;
+    const maxD2 = this._lodDist * this._lodDist;
+    for (const item of this.items) {
+      if (!item.alive || !item.mesh) continue;
+      const dx = item.mesh.position.x - ox;
+      const dz = item.mesh.position.z - oz;
+      item.mesh.visible = dx * dx + dz * dz < maxD2;
+    }
     for (const item of this.items) {
       if (!item.alive) continue;
       item.mesh.position.copy(item.body.position);

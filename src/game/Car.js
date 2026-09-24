@@ -42,6 +42,13 @@ export class Car {
     this._trailTimer = 0;
     this._smokeTimer = 0;
     this._exhaustTimer = 0;
+    this._sparkTimer = 0;
+    this._airborne = false;
+    this._airTime = 0;
+    this._landPunch = 0;
+    this._onBoostPad = false;
+    this._draftTimer = 0;
+    this.trackRef = null; // set by Game for elevation
     this.speed = 0;
     this.slide = 0;
     this.derbyEliminated = false;
@@ -59,7 +66,7 @@ export class Car {
       angularDamping: 0.38,
       material: new CANNON.Material('car'),
     });
-    this.body.position.set(spawn.px, 1.0, spawn.pz);
+    this.body.position.set(spawn.px, spawn.py != null ? spawn.py : 1.0, spawn.pz);
     this.body.quaternion.setFromEuler(0, spawn.facing, 0);
     this.body.allowSleep = false;
     this.body.userData = { car: this };
@@ -121,18 +128,40 @@ export class Car {
     const ud = this.mesh.userData;
     const hp = this.health;
     if (ud.dents) {
-      // Clearer staged damage (4 overlays)
       if (ud.dents[0]) ud.dents[0].visible = hp < 75;
       if (ud.dents[1]) ud.dents[1].visible = hp < 55;
       if (ud.dents[2]) ud.dents[2].visible = hp < 35;
       if (ud.dents[3]) ud.dents[3].visible = hp < 18;
+    }
+    // Multi-piece panel morph/hide
+    const panels = ud.panels;
+    if (panels) {
+      if (panels.looseHood) panels.looseHood.visible = hp < 70 && this.alive;
+      if (panels.looseDoor) panels.looseDoor.visible = hp < 50 && this.alive;
+      if (panels.glass) {
+        panels.glass.visible = hp >= 30;
+        if (panels.glass.material && hp < 55) {
+          panels.glass.material.opacity = Math.max(0.15, hp / 100);
+        }
+      }
+      if (panels.bumper) {
+        if (!panels.bumper.userData._baseY) panels.bumper.userData._baseY = panels.bumper.position.y;
+        panels.bumper.rotation.x = hp < 40 ? 0.35 : 0;
+        panels.bumper.position.y = panels.bumper.userData._baseY - (hp < 25 ? 0.15 : 0);
+      }
+      if (panels.hood && hp < 45) {
+        panels.hood.rotation.x = -0.25 * (1 - hp / 45);
+      } else if (panels.hood) {
+        panels.hood.rotation.x = 0;
+      }
+      if (panels.stripe) panels.stripe.visible = hp >= 20;
     }
     if (ud.smokePuff) ud.smokePuff.visible = hp < 40 && this.alive;
     if (ud.bodyMat) {
       if (!this._baseColor) this._baseColor = ud.bodyMat.color.clone();
       const dmg = 1 - hp / 100;
       ud.bodyMat.color.copy(this._baseColor);
-      ud.bodyMat.color.offsetHSL(0, -dmg * 0.2, -dmg * 0.18);
+      ud.bodyMat.color.offsetHSL(0, -dmg * 0.22, -dmg * 0.2);
     }
   }
 
@@ -160,7 +189,8 @@ export class Car {
     if (this.mesh.userData.shield) this.mesh.userData.shield.visible = false;
     this._updateDamageVisuals();
     const p = trackPoint || this.spawnPos;
-    this.body.position.set(p.x, 1.2, p.z);
+    const ry = this.trackRef ? this.trackRef.getHeightAt(p.x, p.z) + 1.2 : (p.py != null ? p.py : 1.2);
+    this.body.position.set(p.x, ry, p.z);
     this.body.velocity.set(0, 0, 0);
     this.body.angularVelocity.set(0, 0, 0);
     const facing = p.facing != null ? p.facing : this.spawnFacing;
@@ -210,11 +240,32 @@ export class Car {
       this.body.angularVelocity.z *= 0.15;
     }
 
-    if (this.body.position.y < 0.4) {
-      this.body.position.y = 0.5;
+    // Follow track elevation when near road surface
+    const roadY = this.trackRef ? this.trackRef.getHeightAt(this.body.position.x, this.body.position.z) : 0;
+    const rideTarget = roadY + 0.55;
+    const aboveRoad = this.body.position.y - rideTarget;
+    if (aboveRoad < 0.15) {
+      if (this._airborne && this._airTime > 0.18) {
+        this._landPunch = 1;
+        if (this.particles) {
+          this.particles.dust(this.body.position.x, this.body.position.z, 1.2);
+          this.particles.sparks(this.body.position.x, rideTarget + 0.3, this.body.position.z, 8);
+        }
+      }
+      this._airborne = false;
+      this._airTime = 0;
+      this.body.position.y = THREE.MathUtils.lerp(this.body.position.y, rideTarget, Math.min(1, 14 * dt));
+      if (this.body.velocity.y < 0) this.body.velocity.y *= 0.35;
+    } else if (aboveRoad > 0.7) {
+      this._airborne = true;
+      this._airTime += dt;
+    }
+    if (this.body.position.y < roadY + 0.35) {
+      this.body.position.y = roadY + 0.45;
       this.body.velocity.y = Math.max(0, this.body.velocity.y);
     }
-    if (this.body.position.y > 5) this.body.velocity.y -= 22 * dt;
+    if (this.body.position.y > roadY + 6) this.body.velocity.y -= 22 * dt;
+    if (this._landPunch > 0) this._landPunch = Math.max(0, this._landPunch - dt * 3);
 
     const spdMul = 0.75 + (this.stats.speed || 0.8) * 0.45;
     const handMul = 0.7 + (this.stats.handling || 0.8) * 0.5;
@@ -270,9 +321,16 @@ export class Car {
 
     this.mesh.position.copy(this.body.position);
     this.mesh.quaternion.copy(this.body.quaternion);
+    // Pitch mesh to match road slope (visual only — body stays upright)
+    const pitch = this.trackRef
+      ? this.trackRef.getPitchAt(this.body.position.x, this.body.position.z)
+      : 0;
+    const wreckLean = this.health < 35 ? (1 - this.health / 35) * 0.22 : 0;
+    const landSquash = this._landPunch * 0.08;
+    this.mesh.rotation.x = THREE.MathUtils.lerp(this.mesh.rotation.x, pitch * 0.85 - landSquash, Math.min(1, 6 * dt));
     this.mesh.rotation.z = THREE.MathUtils.lerp(
       this.mesh.rotation.z,
-      -this._steer * 0.12 - lat * 0.015,
+      -this._steer * 0.12 - lat * 0.015 + wreckLean,
       Math.min(1, 8 * dt)
     );
 
@@ -313,6 +371,25 @@ export class Car {
       if (this.health < 40 && this._smokeTimer <= 0) {
         this.particles.smoke(this.body.position.x - fwd.x * 1.5, this.body.position.y + 1.0, this.body.position.z - fwd.z * 1.5);
         this._smokeTimer = 0.12;
+      }
+      this._sparkTimer -= dt;
+      if (this.health < 28 && this._sparkTimer <= 0) {
+        this.particles.sparks(
+          this.body.position.x + (Math.random() - 0.5) * 1.2,
+          this.body.position.y + 0.4,
+          this.body.position.z + (Math.random() - 0.5) * 1.2,
+          4 + Math.floor((28 - this.health) / 7)
+        );
+        this._sparkTimer = 0.14 + Math.random() * 0.1;
+      }
+      if (this._onBoostPad) {
+        this.particles.boostTrail(
+          this.body.position.x - fwd.x * 1.2,
+          this.body.position.y + 0.2,
+          this.body.position.z - fwd.z * 1.2,
+          0x66ffcc
+        );
+        this._onBoostPad = false;
       }
     }
 

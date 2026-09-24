@@ -212,7 +212,7 @@ export function makeCarMesh(colorHex, accentHex = 0xffffff, style = 'buggy') {
     group.add(rim);
   }
 
-  // Clearer damage stages
+  // Damage overlays + detachable panels (hood / door / bumper / glass)
   const dentMat = new THREE.MeshStandardMaterial({ color: 0x2a2a30, roughness: 0.95, flatShading: true });
   const dents = [];
   const dentSpecs = [
@@ -228,6 +228,27 @@ export function makeCarMesh(colorHex, accentHex = 0xffffff, style = 'buggy') {
     group.add(d);
     dents.push(d);
   }
+  // Named panels that morph/hide as HP drops
+  const panels = {};
+  panels.hood = nose;
+  panels.cabin = cabin;
+  panels.bumper = frontBump;
+  panels.glass = windshield;
+  panels.stripe = stripe;
+  // Loose hanging panel pieces (visible when damaged)
+  const looseMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.7, flatShading: true });
+  const looseDoor = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.45, 0.9), looseMat);
+  looseDoor.position.set(bodyW * 0.55, rideY + 0.15, 0);
+  looseDoor.rotation.z = 0.35;
+  looseDoor.visible = false;
+  group.add(looseDoor);
+  panels.looseDoor = looseDoor;
+  const looseHood = new THREE.Mesh(new THREE.BoxGeometry(bodyW * 0.5, 0.06, 0.7), looseMat);
+  looseHood.position.set(0.15, rideY + bodyH * 0.6, bodyL * 0.25);
+  looseHood.rotation.x = -0.45;
+  looseHood.visible = false;
+  group.add(looseHood);
+  panels.looseHood = looseHood;
   const smokePuff = new THREE.Mesh(
     new THREE.SphereGeometry(0.4, 6, 5),
     new THREE.MeshStandardMaterial({ color: 0x555555, transparent: true, opacity: 0.55, flatShading: true })
@@ -268,6 +289,7 @@ export function makeCarMesh(colorHex, accentHex = 0xffffff, style = 'buggy') {
   group.userData.shadow = shadow;
   group.userData.shield = shield;
   group.userData.dents = dents;
+  group.userData.panels = panels;
   group.userData.smokePuff = smokePuff;
   group.userData.headlights = headlights;
   group.userData.exhausts = exhausts;
