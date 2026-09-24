@@ -41,6 +41,7 @@ export class Car {
     this._skidTimer = 0;
     this._trailTimer = 0;
     this._smokeTimer = 0;
+    this._exhaustTimer = 0;
     this.speed = 0;
     this.slide = 0;
     this.derbyEliminated = false;
@@ -285,6 +286,17 @@ export class Car {
       this._skidTimer -= dt;
       this._trailTimer -= dt;
       this._smokeTimer -= dt;
+      this._exhaustTimer -= dt;
+      if (this._throttle > 0.35 && this._exhaustTimer <= 0) {
+        const ex = this.body.position.x - fwd.x * 2.0;
+        const ez = this.body.position.z - fwd.z * 2.0;
+        if (this.particles.exhaust) {
+          this.particles.exhaust(ex, this.body.position.y + 0.35, ez, this._boosting);
+        } else {
+          this.particles.smoke(ex, this.body.position.y + 0.3, ez);
+        }
+        this._exhaustTimer = this._boosting ? 0.04 : 0.09;
+      }
       if (this._throttle > 0.5 && Math.abs(speed) > 4 && this._dustTimer <= 0) {
         this.particles.dust(this.body.position.x - fwd.x * 1.2, this.body.position.z - fwd.z * 1.2, Math.min(1, Math.abs(speed) / 25));
         this._dustTimer = 0.08;
@@ -352,6 +364,22 @@ export class Car {
       }
     }
     return false;
+  }
+
+  /** Brighten headlights for night / dark themes. */
+  setNightLights(on) {
+    const ud = this.mesh.userData;
+    if (ud.glowMat) {
+      ud.glowMat.emissiveIntensity = on ? 1.6 : 0.95;
+      ud.glowMat.emissive.setHex(on ? 0xffee88 : 0xffcc44);
+    }
+    if (ud.headlights) {
+      for (const h of ud.headlights) {
+        if (h.material && h.material.opacity != null) {
+          h.material.opacity = on ? 0.55 : 0.35;
+        }
+      }
+    }
   }
 
   dispose() {

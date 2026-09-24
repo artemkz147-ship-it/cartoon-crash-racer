@@ -3,9 +3,9 @@ import * as THREE from 'three';
 /**
  * Lightweight pooled particle FX for mobile: dust, sparks, explosions, skids, trails.
  */
-const MAX_PARTICLES = 180;
-const MAX_SKIDS = 48;
-const MAX_TRAILS = 40;
+const MAX_PARTICLES = 220;
+const MAX_SKIDS = 56;
+const MAX_TRAILS = 56;
 
 export class Particles {
   constructor(scene) {
@@ -119,23 +119,66 @@ export class Particles {
   }
 
   explosion(x, y, z, scale = 1) {
+    // Fire core
     this.burst(x, y, z, {
-      count: Math.floor(14 * scale),
+      count: Math.floor(16 * scale),
       color: 0xff6622,
-      speed: 12 * scale,
-      life: 0.7,
-      size: 0.55 * scale,
-      gravity: 8,
-      upward: 8,
+      speed: 14 * scale,
+      life: 0.75,
+      size: 0.6 * scale,
+      gravity: 7,
+      upward: 9,
     });
-    this.burst(x, y + 0.5, z, {
-      count: Math.floor(8 * scale),
+    // Hot flash
+    this.burst(x, y + 0.4, z, {
+      count: Math.floor(10 * scale),
       color: 0xffee88,
-      speed: 6,
-      life: 0.45,
-      size: 0.35,
-      gravity: 4,
-      upward: 5,
+      speed: 8,
+      life: 0.35,
+      size: 0.4 * scale,
+      gravity: 3,
+      upward: 6,
+    });
+    // Dark smoke plume
+    this.burst(x, y + 0.6, z, {
+      count: Math.floor(8 * scale),
+      color: 0x445566,
+      speed: 3.5,
+      life: 1.1,
+      size: 0.85 * scale,
+      gravity: -2.5,
+      upward: 3.5,
+    });
+    // Embers
+    this.burst(x, y + 0.2, z, {
+      count: Math.floor(12 * scale),
+      color: 0xffaa33,
+      speed: 16 * scale,
+      life: 0.55,
+      size: 0.18,
+      gravity: 14,
+      upward: 10,
+    });
+  }
+
+  /** Expanding shockwave ring (visual only). */
+  shockwave(x, z, scale = 1) {
+    const m = this._alloc();
+    if (!m) return;
+    m.visible = true;
+    m.position.set(x, 0.12, z);
+    m.scale.set(0.4 * scale, 0.08, 0.4 * scale);
+    m.material.color.setHex(0xffeeaa);
+    m.material.opacity = 0.7;
+    this.active.push({
+      mesh: m,
+      vx: 0, vy: 0, vz: 0,
+      life: 0.35,
+      maxLife: 0.35,
+      gravity: 0,
+      drag: 0,
+      shock: true,
+      grow: 18 * scale,
     });
   }
 
@@ -170,13 +213,34 @@ export class Particles {
 
   rocketTrail(x, y, z) {
     this.burst(x, y, z, {
-      count: 2,
+      count: 3,
       color: 0xff8844,
-      speed: 1.5,
-      life: 0.28,
-      size: 0.3,
-      gravity: -2,
-      upward: 0.5,
+      speed: 2,
+      life: 0.32,
+      size: 0.35,
+      gravity: -2.5,
+      upward: 0.6,
+    });
+    this.burst(x, y, z, {
+      count: 1,
+      color: 0xffee66,
+      speed: 0.8,
+      life: 0.2,
+      size: 0.22,
+      gravity: -1,
+      upward: 0.3,
+    });
+  }
+
+  exhaust(x, y, z, boosting = false) {
+    this.burst(x, y, z, {
+      count: boosting ? 3 : 1,
+      color: boosting ? 0xffaa44 : 0x8899aa,
+      speed: boosting ? 2.5 : 1.2,
+      life: boosting ? 0.28 : 0.35,
+      size: boosting ? 0.35 : 0.28,
+      gravity: -1.5,
+      upward: boosting ? 1.2 : 0.8,
     });
   }
 
@@ -192,7 +256,14 @@ export class Particles {
       p.mesh.position.z += p.vz * dt;
       const t = Math.max(0, p.life / p.maxLife);
       p.mesh.material.opacity = t * 0.9;
-      p.mesh.scale.multiplyScalar(1 + dt * 0.8);
+      if (p.shock) {
+        const g = 1 + p.grow * dt;
+        p.mesh.scale.x *= g;
+        p.mesh.scale.z *= g;
+        p.mesh.material.opacity = t * 0.65;
+      } else {
+        p.mesh.scale.multiplyScalar(1 + dt * 0.8);
+      }
       if (p.life <= 0 || p.mesh.position.y < -1) {
         this._free(p.mesh);
         this.active.splice(i, 1);

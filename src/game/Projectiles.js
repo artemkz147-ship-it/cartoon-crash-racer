@@ -96,7 +96,11 @@ export class Projectiles {
   }
 
   _explodeAt(x, y, z, radius, damage, owner, cars, onHit, knock = 1) {
-    if (this.particles) this.particles.explosion(x, y, z, 1.1);
+    if (this.particles) {
+      this.particles.explosion(x, y, z, 1.35);
+      this.particles.sparks(x, y + 0.3, z, 16);
+      this.particles.shockwave(x, z, 1.1);
+    }
     for (const c of cars) {
       if (!c.alive) continue;
       if (c === owner && damage > 20) continue; // mild friendly for rockets
@@ -162,7 +166,7 @@ export class Projectiles {
       }
     }
 
-    if (this._trailT <= 0) this._trailT = 0.04;
+    if (this._trailT <= 0) this._trailT = 0.028;
 
     for (let i = this.mines.length - 1; i >= 0; i--) {
       const m = this.mines[i];

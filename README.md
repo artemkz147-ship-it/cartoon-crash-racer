@@ -2,17 +2,17 @@
 
 **Полноценный мобильный аркадный пакет** (Android APK) — мультяшный **FlatOut × Crash Team Racing**: карьера, быстрая гонка, дерби, гараж, разрушения.
 
-> Версия **1.1.0** — переработка ощущений после телефонного hate-теста (руль, скорость, трассы, машины).
+> Версия **1.2.0** — continuous road mesh, destruction juice, smarter AI, richer audio/themes.
 >
-> Ранее: **1.0.0** — полный контент, не демо-овал.  
+> Ранее: **1.1.0** — руль/скорость/трассы; **1.0.0** — полный контент.  
 > Графика процедурная (Three.js) → APK лёгкий по размеру, по ощущениям — инди-аркада.
 
 - Репозиторий: https://github.com/artemkz147-ship-it/cartoon-crash-racer  
 - APK: [Releases](https://github.com/artemkz147-ship-it/cartoon-crash-racer/releases) · артефакт Actions `cartoon-crash-racer-apk`
 
-Пакет: `com.artemkz.cartooncrashracer` · **1.1.0** (подписанный release для sideload)
+Пакет: `com.artemkz.cartooncrashracer` · **1.2.0** (подписанный release для sideload)
 
-## Контент v1.1
+## Контент v1.2
 
 | Раздел | Количество |
 |--------|------------|
@@ -22,6 +22,14 @@
 | **Режимы** | Карьера · Быстрая гонка · Дерби (**2 арены**) · Гараж · Настройки |
 | **ИИ** | до **7** соперников с именами и характером |
 | **Разрушения** | ящики, барьеры, **взрывные бочки** с цепной реакцией, масло, буст-пады, лава |
+
+### Что нового в 1.2
+
+- **Трассы**: continuous road ribbon (не коробки-сегменты), jersey-барьеры, лучше рампы, плотнее декор по темам, ночные фонари
+- **Разрушения**: многослойные взрывы, shockwave, плотнее debris, сильнее chain barrels + shake/FOV
+- **ИИ**: racing line + curvature lookahead, мягче rubber-band, умнее оружие
+- **Аудио**: dual-osc engine, богаче crash/pickup/explosion
+- **Машины**: exhaust FX, ярче фары ночью, плотнее тень
 
 ### Режимы
 
@@ -36,9 +44,9 @@ Capacitor + WebView + **процедурная** геометрия/тексту
 
 ## Установка APK (sideload)
 
-1. Скачайте **`cartoon-crash-racer.apk`** (signed release) из [Releases / v1.1.0](https://github.com/artemkz147-ship-it/cartoon-crash-racer/releases/tag/v1.1.0).
+1. Скачайте **`cartoon-crash-racer.apk`** (signed release) из [Releases / v1.2.0](https://github.com/artemkz147-ship-it/cartoon-crash-racer/releases/tag/v1.2.0).
 2. Android → разрешите установку из этого источника (браузер / «Файлы»).
-3. Если была старая debug-сборка — **удалите** её (другая подпись) и поставьте v1.1.0 заново.
+3. Если была старая debug-сборка — **удалите** её (другая подпись) и поставьте v1.2.0 заново.
 4. Запуск в **альбомной** ориентации.
 
 ## Управление (телефон)

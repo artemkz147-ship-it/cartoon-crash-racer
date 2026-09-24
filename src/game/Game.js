@@ -84,7 +84,8 @@ export class Game {
     this.props.onExplode = (x, y, z, r) => {
       this.props.blastDamageCars(this.cars, x, y, z, r);
       this.audio.explosion();
-      this.triggerShake(0.25);
+      this.triggerShake(0.38);
+      this.fovPunch = Math.max(this.fovPunch, 5);
     };
     this.pickups = new Pickups(this.scene, this.track);
     this.projectiles = new Projectiles(this.scene, this.particles);
@@ -98,6 +99,7 @@ export class Game {
     this._buildRacers();
 
     this._setupCollisions();
+    this._applyThemeLights();
     this._camPos = new THREE.Vector3();
     this._camLook = new THREE.Vector3();
     this._clock = new THREE.Clock();
@@ -193,8 +195,10 @@ export class Game {
   }
 
   _setupLights(isMobile) {
+    // Placeholder — refined after track loads in _applyThemeLights
     const hemi = new THREE.HemisphereLight(0xfff2dd, 0x3a6a48, 0.95);
     this.scene.add(hemi);
+    this.hemi = hemi;
     const sun = new THREE.DirectionalLight(0xfff5e6, 1.2);
     sun.position.set(35, 55, 25);
     if (!isMobile) {
@@ -213,6 +217,47 @@ export class Game {
     const fill = new THREE.DirectionalLight(0x88aaff, 0.4);
     fill.position.set(-25, 22, -30);
     this.scene.add(fill);
+    this.fill = fill;
+  }
+
+  _applyThemeLights() {
+    const theme = this.track?.cfg?.theme || 'city';
+    const night = !!(this.track?.cfg?.night) || theme === 'factory' || theme === 'volcano' || theme === 'docks';
+    const snow = theme === 'snow';
+    const desert = theme === 'desert';
+    if (this.hemi) {
+      if (night && theme === 'volcano') {
+        this.hemi.color.setHex(0xff8866);
+        this.hemi.groundColor.setHex(0x3a1810);
+        this.hemi.intensity = 0.7;
+      } else if (night && theme === 'factory') {
+        this.hemi.color.setHex(0xaabbcc);
+        this.hemi.groundColor.setHex(0x334044);
+        this.hemi.intensity = 0.65;
+      } else if (night) {
+        this.hemi.color.setHex(0x88aacc);
+        this.hemi.groundColor.setHex(0x2a4050);
+        this.hemi.intensity = 0.75;
+      } else if (snow) {
+        this.hemi.color.setHex(0xe8f0ff);
+        this.hemi.groundColor.setHex(0xa0b8d0);
+        this.hemi.intensity = 1.05;
+      } else if (desert) {
+        this.hemi.color.setHex(0xffe8bb);
+        this.hemi.groundColor.setHex(0xc4a060);
+        this.hemi.intensity = 1.1;
+      }
+    }
+    if (this.sun) {
+      this.sun.intensity = night ? 0.55 : desert ? 1.35 : 1.15;
+      this.sun.color.setHex(theme === 'volcano' ? 0xff6644 : night ? 0xaabbdd : 0xfff5e6);
+    }
+    if (this.fill) {
+      this.fill.intensity = night ? 0.55 : 0.4;
+      this.fill.color.setHex(theme === 'volcano' ? 0xff4422 : 0x88aaff);
+    }
+    // Readable headlights on dark themes
+    for (const car of this.cars || []) car.setNightLights?.(night);
   }
 
   _setupCollisions() {
@@ -573,9 +618,9 @@ export class Game {
     if (!car.alive) target.set(car.spawnPos.x, 16, car.spawnPos.z - 12);
     // Tiny shake only — phone WebView hates big punches
     if (this.shakeTime > 0) {
-      const s = this.shakeTime * 8;
-      target.x += Math.sin(s * 31) * 0.08;
-      target.y += Math.cos(s * 27) * 0.05;
+      const s = this.shakeTime * 10;
+      target.x += Math.sin(s * 33) * 0.14;
+      target.y += Math.cos(s * 29) * 0.09;
     }
     // Smooth follow ~120ms feel
     const follow = 1 - Math.exp(-dt / 0.12);

@@ -153,10 +153,20 @@ export function makeCarMesh(colorHex, accentHex = 0xffffff, style = 'buggy') {
   rearBump.position.set(0, rideY * 0.65, -bodyL * 0.5);
   group.add(rearBump);
 
+  const headlights = [];
   for (const lx of [-bodyW * 0.32, bodyW * 0.32]) {
-    const light = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.2, 0.1), glowMat);
+    const light = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.22, 0.12), glowMat);
     light.position.set(lx, rideY + 0.05, bodyL * 0.54);
     group.add(light);
+    headlights.push(light);
+    // Soft glow halo for night readability
+    const halo = new THREE.Mesh(
+      new THREE.SphereGeometry(0.28, 6, 5),
+      new THREE.MeshBasicMaterial({ color: 0xffeeaa, transparent: true, opacity: 0.35, depthWrite: false })
+    );
+    halo.position.set(lx, rideY + 0.05, bodyL * 0.58);
+    group.add(halo);
+    headlights.push(halo);
   }
   const tailMat = new THREE.MeshStandardMaterial({
     color: 0xff2244, emissive: 0xff0022, emissiveIntensity: 0.75, flatShading: true,
@@ -226,9 +236,20 @@ export function makeCarMesh(colorHex, accentHex = 0xffffff, style = 'buggy') {
   smokePuff.visible = false;
   group.add(smokePuff);
 
+  // Twin exhaust pipes
+  const exhausts = [];
+  const pipeMat = new THREE.MeshStandardMaterial({ color: 0x333344, metalness: 0.7, roughness: 0.35, flatShading: true });
+  for (const lx of [-0.35, 0.35]) {
+    const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.45, 6), pipeMat);
+    pipe.rotation.x = Math.PI / 2;
+    pipe.position.set(lx, rideY * 0.55, -bodyL * 0.52);
+    group.add(pipe);
+    exhausts.push(pipe);
+  }
+
   const shadow = new THREE.Mesh(
-    new THREE.CircleGeometry(1.45 * fat * (wheelScale > 1.2 ? 1.15 : 1), 16),
-    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.32, depthWrite: false })
+    new THREE.CircleGeometry(1.5 * fat * (wheelScale > 1.2 ? 1.15 : 1), 16),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.38, depthWrite: false })
   );
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.y = 0.03;
@@ -248,6 +269,9 @@ export function makeCarMesh(colorHex, accentHex = 0xffffff, style = 'buggy') {
   group.userData.shield = shield;
   group.userData.dents = dents;
   group.userData.smokePuff = smokePuff;
+  group.userData.headlights = headlights;
+  group.userData.exhausts = exhausts;
+  group.userData.glowMat = glowMat;
   group.userData.style = style;
   return group;
 }

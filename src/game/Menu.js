@@ -56,7 +56,7 @@ export class Menu {
     return `
       <div class="menu-panel main-menu">
         <h1>Мультяшные гонки</h1>
-        <p class="subtitle">FlatOut × CTR · карьера · дерби · гараж · v1.1</p>
+        <p class="subtitle">FlatOut × CTR · карьера · дерби · гараж · v1.2</p>
         <div class="menu-stats">
           <span>🏅 Медалей: ${p.medals || 0}</span>
           <span>🏆 Кубков: ${p.cupsCleared || 0}/12</span>
@@ -186,6 +186,7 @@ export class Menu {
           <span>Чувств. руля: <b id="sens-val">${s.sensitivity.toFixed(1)}</b></span>
           <input type="range" id="set-sens" min="0.5" max="1.5" step="0.1" value="${s.sensitivity}"/>
         </label>
+        <p class="hint settings-hint">Руль слева · ГАЗ/ТОРМ/⚡/🔥 справа · ⏸ пауза сверху<br/>v1.2.0 · continuous road · juice · smarter AI</p>
         <button class="menu-btn secondary" data-action="reset-progress">Сбросить прогресс</button>
       </div>`;
   }

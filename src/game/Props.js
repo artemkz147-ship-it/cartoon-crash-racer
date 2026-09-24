@@ -43,7 +43,7 @@ export class DestructibleProps {
     const w = cfg.width || 11;
     const spots = [];
 
-    const crateN = Math.floor(18 * density);
+    const crateN = Math.floor(22 * density);
     for (let i = 0; i < crateN; i++) {
       const idx = Math.floor((i / crateN) * pts.length) % pts.length;
       const p = pts[idx];
@@ -60,7 +60,7 @@ export class DestructibleProps {
       });
     }
 
-    const barrelN = Math.floor((cfg.barrelsExtra ? 22 : 14) * density);
+    const barrelN = Math.floor((cfg.barrelsExtra ? 26 : 18) * density);
     for (let i = 0; i < barrelN; i++) {
       const idx = Math.floor(((i + 0.5) / barrelN) * pts.length) % pts.length;
       const p = pts[idx];
@@ -77,7 +77,7 @@ export class DestructibleProps {
       });
     }
 
-    const barN = Math.floor(10 * density);
+    const barN = Math.floor(12 * density);
     for (let i = 0; i < barN; i++) {
       const idx = Math.floor(((i + 0.25) / barN) * pts.length) % pts.length;
       const p = pts[idx];
@@ -172,17 +172,18 @@ export class DestructibleProps {
     this.destructionScore += points;
 
     if (this.particles) {
-      this.particles.explosion(origin.x, origin.y + 0.4, origin.z, item.explosive ? 1.6 : item.type === 'wall' ? 1.2 : 0.8);
-      this.particles.sparks(origin.x, origin.y + 0.3, origin.z, item.explosive ? 18 : 10);
+      this.particles.explosion(origin.x, origin.y + 0.4, origin.z, item.explosive ? 1.8 : item.type === 'wall' ? 1.3 : 0.9);
+      this.particles.sparks(origin.x, origin.y + 0.3, origin.z, item.explosive ? 22 : 12);
+      if (item.explosive) this.particles.shockwave(origin.x, origin.z, 1.4);
     }
 
     if (item.explosive) {
-      this._chainExplode(origin.x, origin.y, origin.z, fromChain ? 8 : 12);
-      if (this.onExplode) this.onExplode(origin.x, origin.y, origin.z, 14);
+      this._chainExplode(origin.x, origin.y, origin.z, fromChain ? 9 : 14);
+      if (this.onExplode) this.onExplode(origin.x, origin.y, origin.z, 16);
     }
 
-    const count = item.type === 'wall' ? 12 : item.explosive ? 14 : 8;
-    const room = Math.max(0, 55 - this.debris.length);
+    const count = item.type === 'wall' ? 14 : item.explosive ? 16 : 9;
+    const room = Math.max(0, 64 - this.debris.length);
     const n = Math.min(count, room);
     for (let i = 0; i < n; i++) {
       const pieceSize = 0.3 + Math.random() * 0.45;
@@ -209,7 +210,7 @@ export class DestructibleProps {
       );
       body.angularVelocity.set((Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16);
       this.world.addBody(body);
-      this.debris.push({ mesh: piece, body, life: 2.5 + Math.random() });
+      this.debris.push({ mesh: piece, body, life: 3.0 + Math.random() * 1.2 });
     }
   }
 
@@ -237,11 +238,11 @@ export class DestructibleProps {
       const d2 = dx * dx + dz * dz;
       if (d2 < r2) {
         const falloff = 1 - Math.sqrt(d2) / radius;
-        car.takeDamage(28 * falloff, true);
+        car.takeDamage(32 * falloff, true);
         const len = Math.sqrt(d2) || 1;
-        car.body.velocity.x += (dx / len) * 12 * falloff;
-        car.body.velocity.z += (dz / len) * 12 * falloff;
-        car.body.velocity.y += 6 * falloff;
+        car.body.velocity.x += (dx / len) * 14 * falloff;
+        car.body.velocity.z += (dz / len) * 14 * falloff;
+        car.body.velocity.y += 7.5 * falloff;
       }
     }
   }

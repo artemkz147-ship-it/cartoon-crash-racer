@@ -782,3 +782,12 @@ body.touch-mode .controls-hint {
   .cup-list, .track-grid, .car-grid { max-height: 58vh; }
   .car-card, .track-card { padding: 8px; }
 }
+
+.settings-hint {
+  margin: 12px 0 8px;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  opacity: 0.8;
+}
+#pause-overlay h2 { letter-spacing: 0.04em; }
+#pause-overlay p { opacity: 0.85; margin-bottom: 14px; }
