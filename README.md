@@ -2,7 +2,7 @@
 
 **Полноценный мобильный аркадный пакет** (Android APK) — мультяшный **FlatOut × Crash Team Racing**: карьера, быстрая гонка, дерби, гараж, разрушения.
 
-> Версия **1.5.0** — hybrid GLB **окружение** (дороги/бордюры/барьеры/декор Kenney) + машины из 1.4; procedural fallback.
+> Версия **1.6.0** — continuous extruded road ribbon (seamless asphalt + markings) + Kenney curbs/барьеры/декор; no tiled road gaps.
 >
 > Ранее: **1.1.0** — руль/скорость/трассы; **1.0.0** — полный контент.  
 > Графика процедурная (Three.js) → APK лёгкий по размеру, по ощущениям — инди-аркада.
@@ -10,7 +10,7 @@
 - Репозиторий: https://github.com/artemkz147-ship-it/cartoon-crash-racer  
 - APK: [Releases](https://github.com/artemkz147-ship-it/cartoon-crash-racer/releases) · артефакт Actions `cartoon-crash-racer-apk`
 
-Пакет: `com.artemkz.cartooncrashracer` · **1.5.0** (подписанный release для sideload)
+Пакет: `com.artemkz.cartooncrashracer` · **1.6.0** (подписанный release для sideload)
 
 ## Контент v1.2
 
@@ -22,6 +22,12 @@
 | **Режимы** | Карьера · Быстрая гонка · Дерби (**2 арены**) · Гараж · Настройки |
 | **ИИ** | до **7** соперников с именами и характером |
 | **Разрушения** | ящики, барьеры, **взрывные бочки** с цепной реакцией, масло, буст-пады, лава |
+
+### Что нового в 1.6
+
+- **Дорога**: одна continuous extruded ribbon (не Kenney-тайлы с щелями); baked dashed center + white edges; theme shoulders (песок/снег/гравий)
+- Бордюры Kenney flush к краю ленты; барьеры на линии curb; рампы по высоте поверхности
+- Убран thin underlay-hack из v1.5
 
 ### Что нового в 1.2
 
@@ -44,9 +50,9 @@ Capacitor + WebView + **процедурная** геометрия/тексту
 
 ## Установка APK (sideload)
 
-1. Скачайте **`cartoon-crash-racer.apk`** (signed release) из [Releases / v1.5.0](https://github.com/artemkz147-ship-it/cartoon-crash-racer/releases/tag/v1.5.0).
+1. Скачайте **`cartoon-crash-racer.apk`** (signed release) из [Releases / v1.6.0](https://github.com/artemkz147-ship-it/cartoon-crash-racer/releases/tag/v1.6.0).
 2. Android → разрешите установку из этого источника (браузер / «Файлы»).
-3. Если была старая debug-сборка — **удалите** её (другая подпись) и поставьте v1.5.0 заново.
+3. Если была старая debug-сборка — **удалите** её (другая подпись) и поставьте v1.6.0 заново.
 4. Запуск в **альбомной** ориентации.
 
 ## Управление (телефон)
@@ -60,7 +66,7 @@ Capacitor + WebView + **процедурная** геометрия/тексту
 ПК: WASD, Space/Shift, F/ЛКМ, R, P/Esc.
 
 
-## Assets (v1.5)
+## Assets (v1.6)
 
 Hybrid **real GLB** cars + environment (CC0) + procedural fallback:
 
@@ -71,7 +77,7 @@ Hybrid **real GLB** cars + environment (CC0) + procedural fallback:
 - **Quaternius Cars Bundle** — sports cars for Молния / Король
 - Blender polish → `public/models/{cars,props,debris,env}/`; see `assets-src/README.md`
 
-Tracks keep procedural centerline + physics boxes; visuals instance modular env GLBs along the path per theme.
+Tracks: continuous BufferGeometry road ribbon (baked asphalt grain, dashed center, edge lines, theme tint) + Kenney curbs/barriers/props. Physics centerline unchanged.
 
 ## Стек
 

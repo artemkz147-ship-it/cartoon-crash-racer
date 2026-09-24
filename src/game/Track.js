@@ -29,6 +29,7 @@ export class Track {
     this._buildWaypoints();
     this._buildSky();
     this._buildGround();
+    // v1.6: continuous ribbon is always primary; hybrid adds Kenney curbs when present
     this._envRoad = this._buildRoadHybrid();
     if (!this._envRoad) this._buildRoad();
     this._envWalls = this._buildWallsHybrid();
@@ -65,7 +66,7 @@ export class Track {
     const cfg = this.cfg;
     const rx = cfg.radiusX;
     const rz = cfg.radiusZ;
-    const n = cfg.derby ? 28 : 64;
+    const n = cfg.derby ? 28 : 96; // denser centerline → smoother road ribbon
     const pts = [];
 
     if (cfg.shape === 'figure8') {
@@ -218,38 +219,36 @@ export class Track {
   }
 
   /**
-   * Instance modular road GLBs along centerline + red/white curbs.
-   * Keeps a thin procedural ribbon underlay for continuous asphalt / wet look.
-   * @returns {boolean} true if GLB road used
+   * Continuous extruded road ribbon (primary drivable surface) + Kenney curbs.
+   * No tiled road GLBs / gap underlay — seamless BufferGeometry with baked markings.
+   * @returns {boolean} true if env curbs (or arena) built
    */
   _buildRoadHybrid() {
-    if (!hasEnv('road_straight')) return false;
     const cfg = this.cfg;
     const w = cfg.width;
     const pts = this.waypoints;
-    const asphaltTex = this._makeAsphaltTexture();
-    const wet = !!cfg.wet;
+    const wet = !!cfg.wet || !!cfg.night;
+    const roadTex = this._makeRoadSurfaceTexture();
     const asphaltMat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(cfg.asphalt),
-      map: asphaltTex,
-      roughness: wet ? 0.28 : 0.9,
-      metalness: wet ? 0.35 : 0.05,
-      flatShading: true,
+      color: 0xffffff,
+      map: roadTex,
+      roughness: wet ? 0.32 : 0.88,
+      metalness: wet ? 0.28 : 0.04,
+      flatShading: false,
     });
 
     if (cfg.derby || cfg.shape === 'arena') {
       const rx = cfg.radiusX;
       const rz = cfg.radiusZ;
       const arena = new THREE.Mesh(
-        new THREE.CircleGeometry(Math.max(rx, rz) * 0.95, 48),
+        new THREE.CircleGeometry(Math.max(rx, rz) * 0.95, 64),
         asphaltMat
       );
       arena.rotation.x = -Math.PI / 2;
-      arena.position.y = 0.02;
+      arena.position.y = 0.04;
       arena.scale.set(rx / Math.max(rx, rz), 1, rz / Math.max(rx, rz));
       arena.receiveShadow = true;
       this._addMesh(arena);
-      // Ring of jersey barriers
       const segs = 28;
       for (let i = 0; i < segs; i++) {
         const a = (i / segs) * Math.PI * 2;
@@ -257,69 +256,39 @@ export class Track {
         const mid = (a + next) / 2;
         const len = Math.hypot(Math.cos(next) * rx - Math.cos(a) * rx, Math.sin(next) * rz - Math.sin(a) * rz);
         this._placeEnv(i % 2 ? 'curb_red' : 'curb_white',
-          Math.cos(mid) * rx * 0.98, 0.05, Math.sin(mid) * rz * 0.98,
-          { yaw: -mid, sx: Math.max(0.8, len / 2.2), sy: 1.1, sz: 1.1 });
+          Math.cos(mid) * rx * 0.98, 0.04, Math.sin(mid) * rz * 0.98,
+          { yaw: -mid, sx: Math.max(0.8, len / 2.2), sy: 1.0, sz: 1.0 });
       }
       return true;
     }
 
-    // Continuous underlay ribbon (cheap, fills gaps between tiles)
-    this._addMesh(this._makeRibbon(pts, w * 0.5, 0.02, asphaltMat, { uvScale: 0.12 }));
+    // Theme shoulder strip (sand / dirty snow / gravel) flush under road edge
+    const shoulder = this._shoulderColor();
+    if (shoulder) {
+      const shoulderMat = new THREE.MeshStandardMaterial({
+        color: shoulder, roughness: 0.95, flatShading: true,
+      });
+      this._addMesh(this._makeRibbon(pts, w * 0.58, 0.015, shoulderMat, { uvScale: 0.06 }));
+    }
+
+    // MAIN continuous road surface — single BufferGeometry, seamless
+    const roadY = 0.05;
+    this._addMesh(this._makeRibbon(pts, w * 0.5, roadY, asphaltMat, { uvScale: 0.09 }));
+
     if (wet) {
       const reflMat = new THREE.MeshStandardMaterial({
-        color: 0x88aacc, roughness: 0.15, metalness: 0.55,
-        transparent: true, opacity: 0.22, flatShading: true,
+        color: cfg.night ? 0x6688aa : 0x88aacc,
+        roughness: 0.12, metalness: 0.5,
+        transparent: true, opacity: cfg.night ? 0.18 : 0.2, flatShading: true,
       });
-      this._addMesh(this._makeRibbon(pts, w * 0.42, 0.04, reflMat, { uvScale: 0.05 }));
+      this._addMesh(this._makeRibbon(pts, w * 0.46, roadY + 0.012, reflMat, { uvScale: 0.04 }));
     }
 
-    const NATIVE = 8; // polished road_straight footprint
-    const step = 1; // every waypoint segment
-    for (let i = 0; i < pts.length; i += step) {
-      const a = pts[i];
-      const b = pts[(i + 1) % pts.length];
-      const dx = b.x - a.x;
-      const dz = b.z - a.z;
-      const len = Math.hypot(dx, dz);
-      if (len < 0.25) continue;
-      const ang = Math.atan2(dx, dz);
-      const ey = ((a.y || 0) + (b.y || 0)) * 0.5;
-      const pitch = Math.atan2((b.y || 0) - (a.y || 0), len);
-      // Prefer barrier-edged piece every other tile for visual variety
-      const roadId = (i % 3 === 0 && hasEnv('road_straight_barrier'))
-        ? 'road_straight_barrier'
-        : 'road_straight';
-      this._placeEnv(roadId,
-        (a.x + b.x) / 2, ey + 0.03, (a.z + b.z) / 2,
-        {
-          yaw: ang,
-          pitch,
-          sx: (w * 1.02) / NATIVE,
-          sy: 1,
-          sz: (len * 1.08) / NATIVE,
-        });
-    }
-
-    // Center dashed stripes (procedural — cheap readable racing line)
-    const stripeMat = new THREE.MeshStandardMaterial({
-      color: 0xffe566, emissive: 0xaa8800, emissiveIntensity: 0.15, flatShading: true,
-    });
-    for (let i = 0; i < pts.length; i += 2) {
-      const a = pts[i];
-      const b = pts[(i + 1) % pts.length];
-      const dx = b.x - a.x;
-      const dz = b.z - a.z;
-      const len = Math.hypot(dx, dz);
-      if (len < 0.1) continue;
-      const ang = Math.atan2(dx, dz);
-      const ey = ((a.y || 0) + (b.y || 0)) * 0.5;
-      const s = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.04, Math.min(2.4, len * 0.55)), stripeMat);
-      s.position.set((a.x + b.x) / 2, ey + 0.08, (a.z + b.z) / 2);
-      s.rotation.y = ang;
-      this._addMesh(s);
-    }
-
-    // Red/white kerb modules along edges
+    // Kenney curbs flush with road edges (no road tiles — they caused seams)
+    const halfEdge = w * 0.5;
+    const hasCurb = hasEnv('curb_white') || hasEnv('curb_red') || hasEnv('construction_barrier');
+    const curbA = hasCurb ? null : new THREE.MeshStandardMaterial({ color: 0xffffff, flatShading: true });
+    const curbB = hasCurb ? null : new THREE.MeshStandardMaterial({ color: 0xff3344, flatShading: true });
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i];
       const n = pts[(i + 1) % pts.length];
@@ -327,19 +296,48 @@ export class Track {
       const nx = Math.cos(ang);
       const nz = -Math.sin(ang);
       const segLen = Math.hypot(n.x - p.x, n.z - p.z);
+      if (segLen < 0.2) continue;
       const ey = ((p.y || 0) + (n.y || 0)) * 0.5;
       const curbId = i % 2 === 0 ? 'curb_white' : 'curb_red';
       const alt = hasEnv(curbId) ? curbId : (hasEnv('construction_barrier') ? 'construction_barrier' : null);
-      if (!alt) continue;
+      if (!alt) {
+        for (const side of [-1, 1]) {
+          const c = new THREE.Mesh(
+            new THREE.BoxGeometry(0.45, 0.26, Math.max(0.7, segLen * 0.95)),
+            i % 2 === 0 ? curbA : curbB
+          );
+          c.position.set(
+            (p.x + n.x) / 2 + nx * side * (halfEdge + 0.12),
+            ey + roadY + 0.1,
+            (p.z + n.z) / 2 + nz * side * (halfEdge + 0.12)
+          );
+          c.rotation.y = ang;
+          c.castShadow = true;
+          this._addMesh(c);
+        }
+        continue;
+      }
       for (const side of [-1, 1]) {
         this._placeEnv(alt,
-          (p.x + n.x) / 2 + nx * side * (w * 0.52),
-          ey + 0.02,
-          (p.z + n.z) / 2 + nz * side * (w * 0.52),
-          { yaw: ang, sx: Math.max(0.6, segLen / 2.2), sy: 0.55, sz: 0.7 });
+          (p.x + n.x) / 2 + nx * side * (halfEdge + 0.15),
+          ey + roadY,
+          (p.z + n.z) / 2 + nz * side * (halfEdge + 0.15),
+          { yaw: ang, sx: Math.max(0.7, segLen / 2.0), sy: 0.65, sz: 0.75 });
       }
     }
     return true;
+  }
+
+  /** Theme shoulder / verge color outside asphalt, or null to skip. */
+  _shoulderColor() {
+    const t = this.cfg.theme;
+    if (t === 'desert') return 0xd4a85a;
+    if (t === 'snow') return 0xb8c4d8;
+    if (t === 'volcano') return 0x3a2818;
+    if (t === 'factory' || t === 'docks') return 0x4a4a52;
+    if (t === 'forest') return 0x3a6a38;
+    if (t === 'stadium') return 0x4a7a48;
+    return 0x3a6a3a; // city / default grass verge
   }
 
   /**
@@ -351,7 +349,8 @@ export class Track {
     if (!useJersey) return false;
     const cfg = this.cfg;
     const pts = this.waypoints;
-    const halfW = cfg.width * 0.55;
+    // Sit on outer curb line (road half + curb ~0.15)
+    const halfW = cfg.width * 0.5 + 0.55;
     const wallMat = new THREE.MeshStandardMaterial({ color: cfg.wallA, roughness: 0.65, flatShading: true });
     const wallMat2 = new THREE.MeshStandardMaterial({ color: cfg.wallB, roughness: 0.65, flatShading: true });
     const topMat = new THREE.MeshStandardMaterial({
@@ -410,7 +409,7 @@ export class Track {
           yaw: ang,
           sx: len / 2.9,
           sy: bankH / 0.4,
-          sz: 2.0,
+          sz: 1.8,
         });
         // Tint stripe cap (small procedural) for theme color pops
         if (i % 2 === 0) {
@@ -478,10 +477,10 @@ export class Track {
       const fz = Math.cos(ang);
       const ey = p.y || 0;
       const id = hasEnv('ramp') ? 'ramp' : 'road_ramp';
-      this._placeEnv(id, p.x, ey, p.z, { yaw: ang, sx: 1.6, sy: 1.4, sz: 1.6 });
+      this._placeEnv(id, p.x, ey + 0.05, p.z, { yaw: ang, sx: 1.6, sy: 1.4, sz: 1.6 });
       const body = new CANNON.Body({ mass: 0 });
       body.addShape(new CANNON.Box(new CANNON.Vec3(2.3, 0.22, 3.1)));
-      body.position.set(p.x, ey + 0.75, p.z);
+      body.position.set(p.x, ey + 0.8, p.z);
       body.quaternion.setFromEuler(-0.32, ang, 0);
       this._addBody(body);
       this.ramps.push({ x: p.x, z: p.z, y: ey, fx, fz, boost: 14 });
@@ -695,22 +694,114 @@ export class Track {
     return mesh;
   }
 
-  /** Asphalt canvas texture with faint grain. */
+  /** Parse cfg.asphalt hex → {r,g,b} 0-255. */
+  _asphaltRGB() {
+    const hex = (this.cfg.asphalt || '#3a3a48').replace('#', '');
+    const n = parseInt(hex.length === 3
+      ? hex.split('').map((c) => c + c).join('')
+      : hex, 16);
+    let r = (n >> 16) & 255;
+    let g = (n >> 8) & 255;
+    let b = n & 255;
+    const t = this.cfg.theme;
+    // Theme tint without killing readability
+    if (t === 'desert') { r = Math.min(255, r + 28); g = Math.min(255, g + 14); b = Math.max(0, b - 8); }
+    else if (t === 'snow') { r = Math.min(255, r + 10); g = Math.min(255, g + 12); b = Math.min(255, b + 18); }
+    else if (t === 'factory' || this.cfg.night) { r = Math.max(0, r - 18); g = Math.max(0, g - 16); b = Math.max(0, b - 10); }
+    else if (t === 'volcano') { r = Math.min(255, r + 22); g = Math.max(0, g - 8); b = Math.max(0, b - 12); }
+    else if (t === 'docks') { r = Math.max(0, r - 6); g = Math.max(0, g - 4); b = Math.min(255, b + 8); }
+    return { r, g, b };
+  }
+
+  /** Simple grain asphalt (fallback / arena tint multiply). */
   _makeAsphaltTexture() {
+    const { r, g, b } = this._asphaltRGB();
     const canvas = document.createElement('canvas');
     canvas.width = 128;
     canvas.height = 128;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = this.cfg.asphalt;
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
     ctx.fillRect(0, 0, 128, 128);
-    for (let i = 0; i < 400; i++) {
-      const g = 40 + Math.random() * 40;
-      ctx.fillStyle = `rgba(${g},${g},${g + 10},0.15)`;
+    for (let i = 0; i < 500; i++) {
+      const gr = 30 + Math.random() * 50;
+      ctx.fillStyle = `rgba(${gr},${gr},${gr + 8},0.18)`;
       ctx.fillRect(Math.random() * 128, Math.random() * 128, 2, 2);
     }
     const tex = new THREE.CanvasTexture(canvas);
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(1, 1);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  /**
+   * Full road surface: asphalt grain + white edge lines + dashed yellow center.
+   * U across width (0=left..1=right), V along length (repeats for dashes).
+   */
+  _makeRoadSurfaceTexture() {
+    const { r, g, b } = this._asphaltRGB();
+    const W = 256;
+    const H = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillRect(0, 0, W, H);
+
+    // Fine asphalt grain + slight darker patches
+    for (let i = 0; i < 2200; i++) {
+      const gr = 20 + Math.random() * 55;
+      const a = 0.08 + Math.random() * 0.14;
+      ctx.fillStyle = `rgba(${gr},${gr},${gr + 12},${a})`;
+      const s = 1 + (Math.random() > 0.7 ? 2 : 0);
+      ctx.fillRect(Math.random() * W, Math.random() * H, s, s);
+    }
+    for (let i = 0; i < 40; i++) {
+      ctx.fillStyle = `rgba(0,0,0,${0.04 + Math.random() * 0.06})`;
+      ctx.beginPath();
+      ctx.ellipse(Math.random() * W, Math.random() * H, 8 + Math.random() * 18, 3 + Math.random() * 6, Math.random(), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Soft shoulder darkening near edges (wear)
+    const edgeGradL = ctx.createLinearGradient(0, 0, W * 0.12, 0);
+    edgeGradL.addColorStop(0, 'rgba(0,0,0,0.22)');
+    edgeGradL.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = edgeGradL;
+    ctx.fillRect(0, 0, W * 0.12, H);
+    const edgeGradR = ctx.createLinearGradient(W, 0, W * 0.88, 0);
+    edgeGradR.addColorStop(0, 'rgba(0,0,0,0.22)');
+    edgeGradR.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = edgeGradR;
+    ctx.fillRect(W * 0.88, 0, W * 0.12, H);
+
+    // White edge lines
+    ctx.fillStyle = '#f2f2f0';
+    ctx.fillRect(0, 0, W * 0.035, H);
+    ctx.fillRect(W * 0.965, 0, W * 0.035, H);
+    // Soft glow under edge paint
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(W * 0.035, 0, W * 0.015, H);
+    ctx.fillRect(W * 0.95, 0, W * 0.015, H);
+
+    // Dashed yellow center line (dash along V)
+    const dashH = H * 0.38;
+    const gapH = H * 0.22;
+    const cx = W * 0.5;
+    const lw = W * 0.028;
+    ctx.fillStyle = '#ffe566';
+    for (let y = 0; y < H; y += dashH + gapH) {
+      ctx.fillRect(cx - lw * 0.5, y, lw, dashH);
+    }
+    // Thin darker groove beside center
+    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    ctx.fillRect(cx - lw * 1.6, 0, lw * 0.35, H);
+    ctx.fillRect(cx + lw * 1.25, 0, lw * 0.35, H);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = 4;
     tex.colorSpace = THREE.SRGBColorSpace;
     return tex;
   }
@@ -718,22 +809,15 @@ export class Track {
   _buildRoad() {
     const cfg = this.cfg;
     const w = cfg.width;
-    const asphaltTex = this._makeAsphaltTexture();
-    const wet = !!cfg.wet;
+    const asphaltTex = this._makeRoadSurfaceTexture();
+    const wet = !!cfg.wet || !!cfg.night;
     const asphaltMat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(cfg.asphalt),
+      color: 0xffffff,
       map: asphaltTex,
-      roughness: wet ? 0.28 : 0.9,
-      metalness: wet ? 0.35 : 0.05,
-      flatShading: true,
+      roughness: wet ? 0.32 : 0.88,
+      metalness: wet ? 0.28 : 0.04,
+      flatShading: false,
     });
-    const stripeMat = new THREE.MeshStandardMaterial({
-      color: 0xffe566,
-      emissive: 0xaa8800,
-      emissiveIntensity: 0.15,
-      flatShading: true,
-    });
-    const whiteMat = new THREE.MeshStandardMaterial({ color: 0xffffff, flatShading: true });
     const curbA = new THREE.MeshStandardMaterial({ color: 0xffffff, flatShading: true });
     const curbB = new THREE.MeshStandardMaterial({ color: 0xff3344, flatShading: true });
 
@@ -762,61 +846,26 @@ export class Track {
     }
 
     const pts = this.waypoints;
-    // Continuous extruded road strip (merged quads with UVs + elevation)
-    const road = this._makeRibbon(pts, w * 0.5, 0.03, asphaltMat, { uvScale: 0.12 });
-    this._addMesh(road);
+    const shoulder = this._shoulderColor();
+    if (shoulder) {
+      const shoulderMat = new THREE.MeshStandardMaterial({
+        color: shoulder, roughness: 0.95, flatShading: true,
+      });
+      this._addMesh(this._makeRibbon(pts, w * 0.58, 0.015, shoulderMat, { uvScale: 0.06 }));
+    }
+    const roadY = 0.05;
+    this._addMesh(this._makeRibbon(pts, w * 0.5, roadY, asphaltMat, { uvScale: 0.09 }));
 
-    // Cheap wet-road reflection fake (glossy translucent overlay)
     if (wet) {
       const reflMat = new THREE.MeshStandardMaterial({
-        color: 0x88aacc,
-        roughness: 0.15,
-        metalness: 0.55,
-        transparent: true,
-        opacity: 0.22,
-        flatShading: true,
+        color: cfg.night ? 0x6688aa : 0x88aacc,
+        roughness: 0.12, metalness: 0.5,
+        transparent: true, opacity: 0.2, flatShading: true,
       });
-      this._addMesh(this._makeRibbon(pts, w * 0.42, 0.05, reflMat, { uvScale: 0.05 }));
+      this._addMesh(this._makeRibbon(pts, w * 0.46, roadY + 0.012, reflMat, { uvScale: 0.04 }));
     }
 
-    // Center dashed line following elevation
-    for (let i = 0; i < pts.length; i += 2) {
-      const a = pts[i];
-      const b = pts[(i + 1) % pts.length];
-      const dx = b.x - a.x;
-      const dz = b.z - a.z;
-      const len = Math.hypot(dx, dz);
-      if (len < 0.1) continue;
-      const ang = Math.atan2(dx, dz);
-      const ey = ((a.y || 0) + (b.y || 0)) * 0.5;
-      const s = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.04, Math.min(2.4, len * 0.55)), stripeMat);
-      s.position.set((a.x + b.x) / 2, ey + 0.06, (a.z + b.z) / 2);
-      s.rotation.y = ang;
-      this._addMesh(s);
-    }
-
-    // Continuous white edge lines (thin ribbons)
-    const edgeHalf = w * 0.48;
-    // Offset centerline for left/right edge ribbons
-    const leftEdge = [];
-    const rightEdge = [];
-    for (let i = 0; i < pts.length; i++) {
-      const prev = pts[(i - 1 + pts.length) % pts.length];
-      const cur = pts[i];
-      const next = pts[(i + 1) % pts.length];
-      let tx = next.x - prev.x;
-      let tz = next.z - prev.z;
-      const len = Math.hypot(tx, tz) || 1;
-      tx /= len; tz /= len;
-      const nx = tz;
-      const nz = -tx;
-      leftEdge.push({ x: cur.x - nx * edgeHalf, z: cur.z - nz * edgeHalf, y: cur.y || 0 });
-      rightEdge.push({ x: cur.x + nx * edgeHalf, z: cur.z + nz * edgeHalf, y: cur.y || 0 });
-    }
-    this._addMesh(this._makeRibbon(leftEdge, 0.18, 0.055, whiteMat, { uvScale: 0.2 }));
-    this._addMesh(this._makeRibbon(rightEdge, 0.18, 0.055, whiteMat, { uvScale: 0.2 }));
-
-    // Red/white kerbs along edges (every segment, alternating)
+    // Red/white kerbs flush with road edges
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i];
       const n = pts[(i + 1) % pts.length];
@@ -826,37 +875,19 @@ export class Track {
       const segLen = Math.hypot(n.x - p.x, n.z - p.z);
       for (const side of [-1, 1]) {
         const c = new THREE.Mesh(
-          new THREE.BoxGeometry(0.5, 0.28, Math.max(0.8, segLen * 0.92)),
+          new THREE.BoxGeometry(0.45, 0.26, Math.max(0.7, segLen * 0.95)),
           i % 2 === 0 ? curbA : curbB
         );
         const ey = ((p.y || 0) + (n.y || 0)) * 0.5;
         c.position.set(
-          (p.x + n.x) / 2 + nx * side * (w * 0.52),
-          ey + 0.14,
-          (p.z + n.z) / 2 + nz * side * (w * 0.52)
+          (p.x + n.x) / 2 + nx * side * (w * 0.5 + 0.12),
+          ey + roadY + 0.1,
+          (p.z + n.z) / 2 + nz * side * (w * 0.5 + 0.12)
         );
         c.rotation.y = ang;
         c.castShadow = true;
         this._addMesh(c);
       }
-    }
-
-    // Racing-line chevrons (every 4th, subtler)
-    const chevMat = new THREE.MeshStandardMaterial({
-      color: 0x66ffcc,
-      emissive: 0x22aa66,
-      emissiveIntensity: 0.4,
-      flatShading: true,
-    });
-    for (let i = 0; i < pts.length; i += 4) {
-      const p = pts[i];
-      const n = pts[(i + 1) % pts.length];
-      const ang = Math.atan2(n.x - p.x, n.z - p.z);
-      const chev = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.0, 3), chevMat);
-      chev.rotation.x = Math.PI / 2;
-      chev.rotation.z = ang;
-      chev.position.set(p.x, (p.y || 0) + 0.08, p.z);
-      this._addMesh(chev);
     }
   }
 
