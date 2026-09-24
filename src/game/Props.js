@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import {
-  makeCrateMesh,
-  makeBarrelMesh,
   makeBarrierMesh,
   makeWallBreakableMesh,
-  makeDebrisPiece,
 } from './meshes.js';
+import {
+  makeHybridCrateMesh,
+  makeHybridBarrelMesh,
+  makeHybridDebrisPiece,
+} from './Assets.js';
 
 export class DestructibleProps {
   constructor(scene, world, particles, track) {
@@ -119,11 +121,11 @@ export class DestructibleProps {
   _addProp(s) {
     let mesh, half, mass, color, hp;
     if (s.type === 'crate') {
-      mesh = makeCrateMesh();
+      mesh = makeHybridCrateMesh();
       half = new CANNON.Vec3(0.62, 0.62, 0.62);
       mass = 28; color = 0xc48a3a; hp = 28;
     } else if (s.type === 'barrel') {
-      mesh = makeBarrelMesh(s.explosive !== false);
+      mesh = makeHybridBarrelMesh(s.explosive !== false);
       half = new CANNON.Vec3(0.48, 0.58, 0.48);
       mass = 22; color = 0xd4452a; hp = 18;
     } else if (s.type === 'wall') {
@@ -194,7 +196,7 @@ export class DestructibleProps {
     const n = Math.min(count, room);
     for (let i = 0; i < n; i++) {
       const pieceSize = 0.3 + Math.random() * 0.45;
-      const piece = makeDebrisPiece(item.color, pieceSize);
+      const piece = makeHybridDebrisPiece(item.color, pieceSize);
       piece.position.set(origin.x, origin.y + 0.3, origin.z);
       this.scene.add(piece);
       const size = pieceSize * 0.4;

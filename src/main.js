@@ -2,6 +2,7 @@ import './style.css';
 import { Game } from './game/Game.js';
 import { Menu } from './game/Menu.js';
 import { getSettings } from './game/Progress.js';
+import { preloadAssets } from './game/Assets.js';
 
 const canvas = document.getElementById('game-canvas');
 const pauseOverlay = document.getElementById('pause-overlay');
@@ -30,7 +31,8 @@ function quitToMenu() {
   menu?.show();
 }
 
-function startRace(opts) {
+async function startRace(opts) {
+  try { await preloadAssets(); } catch (e) { console.warn(e); }
   if (game) {
     try {
       game.dispose();
@@ -69,6 +71,7 @@ function startRace(opts) {
   } catch (_) {}
 }
 
+preloadAssets().catch(() => {});
 const menu = new Menu({ onStartRace: startRace });
 setRaceUI(false);
 menu.show();

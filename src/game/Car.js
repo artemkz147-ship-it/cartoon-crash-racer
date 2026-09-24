@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { makeCarMesh } from './meshes.js';
+import { makeHybridCarMesh } from './Assets.js';
 import { getCar } from './data/cars.js';
 
 const MAX_HEALTH = 100;
@@ -54,7 +54,7 @@ export class Car {
     this.derbyEliminated = false;
 
     const meshStyle = style || getCar(carId)?.style || 'buggy';
-    this.mesh = makeCarMesh(color, accent, meshStyle);
+    this.mesh = makeHybridCarMesh(color, accent, meshStyle, this.carId);
     scene.add(this.mesh);
 
     const mass = 180 + (this.stats.armor || 0.7) * 80;
@@ -133,8 +133,9 @@ export class Car {
       if (ud.dents[2]) ud.dents[2].visible = hp < 35;
       if (ud.dents[3]) ud.dents[3].visible = hp < 18;
     }
-    // Multi-piece panel morph/hide
+    // Multi-piece panel morph/hide (procedural). GLTF: overlays + tint only.
     const panels = ud.panels;
+    const gltf = !!ud.isGltf;
     if (panels) {
       if (panels.looseHood) panels.looseHood.visible = hp < 70 && this.alive;
       if (panels.looseDoor) panels.looseDoor.visible = hp < 50 && this.alive;
@@ -144,14 +145,14 @@ export class Car {
           panels.glass.material.opacity = Math.max(0.15, hp / 100);
         }
       }
-      if (panels.bumper) {
+      if (!gltf && panels.bumper) {
         if (!panels.bumper.userData._baseY) panels.bumper.userData._baseY = panels.bumper.position.y;
         panels.bumper.rotation.x = hp < 40 ? 0.35 : 0;
         panels.bumper.position.y = panels.bumper.userData._baseY - (hp < 25 ? 0.15 : 0);
       }
-      if (panels.hood && hp < 45) {
+      if (!gltf && panels.hood && hp < 45) {
         panels.hood.rotation.x = -0.25 * (1 - hp / 45);
-      } else if (panels.hood) {
+      } else if (!gltf && panels.hood) {
         panels.hood.rotation.x = 0;
       }
       if (panels.stripe) panels.stripe.visible = hp >= 20;

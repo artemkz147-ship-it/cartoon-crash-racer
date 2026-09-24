@@ -44,3 +44,8 @@ dist-apk/
 *.apk
 dist-apk/
 
+
+# Raw CC0 packs (re-downloadable); keep polished public/models + scripts
+assets-src/kenney/
+assets-src/quaternius/
+assets-src/**/*.zip
