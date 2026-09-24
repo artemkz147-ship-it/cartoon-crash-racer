@@ -5,7 +5,6 @@ import { getTrack } from './data/tracks.js';
 import {
   hasEnv,
   cloneEnv,
-  cloneEnvAny,
   envThemeProps,
 } from './Assets.js';
 
