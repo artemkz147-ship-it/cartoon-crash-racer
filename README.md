@@ -2,7 +2,7 @@
 
 **Полноценный мобильный аркадный пакет** (Android APK) — мультяшный **FlatOut × Crash Team Racing**: карьера, быстрая гонка, дерби, гараж, разрушения.
 
-> Версия **1.4.0** — реальные GLB-машины (Kenney/Quaternius CC0) + procedural fallback; hills/damage/audio из 1.3. — hills/elevation, soft bloom, car damage panels, music bed, AI block/overtake, LOD + FPS auto-quality.
+> Версия **1.5.0** — hybrid GLB **окружение** (дороги/бордюры/барьеры/декор Kenney) + машины из 1.4; procedural fallback.
 >
 > Ранее: **1.1.0** — руль/скорость/трассы; **1.0.0** — полный контент.  
 > Графика процедурная (Three.js) → APK лёгкий по размеру, по ощущениям — инди-аркада.
@@ -10,7 +10,7 @@
 - Репозиторий: https://github.com/artemkz147-ship-it/cartoon-crash-racer  
 - APK: [Releases](https://github.com/artemkz147-ship-it/cartoon-crash-racer/releases) · артефакт Actions `cartoon-crash-racer-apk`
 
-Пакет: `com.artemkz.cartooncrashracer` · **1.4.0** (подписанный release для sideload)
+Пакет: `com.artemkz.cartooncrashracer` · **1.5.0** (подписанный release для sideload)
 
 ## Контент v1.2
 
@@ -44,9 +44,9 @@ Capacitor + WebView + **процедурная** геометрия/тексту
 
 ## Установка APK (sideload)
 
-1. Скачайте **`cartoon-crash-racer.apk`** (signed release) из [Releases / v1.4.0](https://github.com/artemkz147-ship-it/cartoon-crash-racer/releases/tag/v1.4.0).
+1. Скачайте **`cartoon-crash-racer.apk`** (signed release) из [Releases / v1.5.0](https://github.com/artemkz147-ship-it/cartoon-crash-racer/releases/tag/v1.5.0).
 2. Android → разрешите установку из этого источника (браузер / «Файлы»).
-3. Если была старая debug-сборка — **удалите** её (другая подпись) и поставьте v1.4.0 заново.
+3. Если была старая debug-сборка — **удалите** её (другая подпись) и поставьте v1.5.0 заново.
 4. Запуск в **альбомной** ориентации.
 
 ## Управление (телефон)
@@ -60,13 +60,18 @@ Capacitor + WebView + **процедурная** геометрия/тексту
 ПК: WASD, Space/Shift, F/ЛКМ, R, P/Esc.
 
 
-## Assets (v1.4)
+## Assets (v1.5)
 
-Hybrid **real GLB** cars/props (CC0) + procedural fallback:
+Hybrid **real GLB** cars + environment (CC0) + procedural fallback:
 
-- **Kenney Car Kit** — karts, hatchback, SUV, race, tractor, truck, crate, cone, debris ([CC0](https://creativecommons.org/publicdomain/zero/1.0/))
-- **Quaternius Cars Bundle** — sports cars for Молния / Король ([CC0](https://creativecommons.org/publicdomain/zero/1.0/))
-- Blender polish → `public/models/`; see `assets-src/README.md`
+- **Kenney Car Kit** — cars, crate, cone, debris
+- **Kenney City Kit (Roads)** / **Racing Kit** — road tiles, curbs, jersey, rails, ramps, lamps, billboards, grandstands
+- **Kenney Nature Kit** + Castle rocks — trees, cactus, rocks, cliffs
+- **Kenney City Commercial / Suburban / Industrial** — buildings, houses, chimneys, containers
+- **Quaternius Cars Bundle** — sports cars for Молния / Король
+- Blender polish → `public/models/{cars,props,debris,env}/`; see `assets-src/README.md`
+
+Tracks keep procedural centerline + physics boxes; visuals instance modular env GLBs along the path per theme.
 
 ## Стек
 

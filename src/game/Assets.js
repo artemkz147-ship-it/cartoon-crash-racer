@@ -1,5 +1,5 @@
 /**
- * Hybrid real-3D assets: Kenney Car Kit + Quaternius Cars (CC0),
+ * Hybrid real-3D assets: Kenney Car/Road/Nature/City kits + Quaternius (CC0),
  * Blender-polished GLBs under public/models/. Procedural meshes.js is fallback.
  */
 import * as THREE from 'three';
@@ -39,6 +39,33 @@ const DEBRIS_URLS = [
   'models/debris/debris-tire.glb',
 ];
 
+const ENV_IDS = [
+  'road_straight', 'road_straight_barrier', 'road_curve', 'road_slant',
+  'curb_red', 'curb_white', 'jersey_barrier', 'guardrail', 'guardrail_double',
+  'construction_barrier', 'ramp', 'road_ramp',
+  'lamp', 'lamp_double', 'lamp_race', 'billboard', 'billboard_low',
+  'cone', 'dumpster', 'grandstand', 'grandstand_covered', 'fence', 'pylon', 'flag_checkers',
+  'tree_pine', 'tree_pine_b', 'tree_oak', 'tree_default', 'tree_palm', 'tree_cone',
+  'cactus_tall', 'cactus_short', 'rock_large', 'rock_large_b', 'rock_small', 'bush',
+  'cliff_rock', 'rocks_castle',
+  'building_a', 'building_b', 'building_c', 'building_d', 'skyscraper',
+  'house_a', 'house_b', 'tree_suburban',
+  'industrial_a', 'industrial_b', 'chimney', 'container', 'container_b', 'water_tower', 'tank',
+];
+
+/** Theme → preferred env prop keys (cycled). */
+export const THEME_ENV_PROPS = {
+  city: ['building_a', 'building_b', 'building_c', 'building_d', 'skyscraper', 'lamp', 'billboard', 'dumpster'],
+  desert: ['cactus_tall', 'cactus_short', 'rock_large', 'rock_small', 'tree_palm', 'rock_large_b'],
+  snow: ['tree_pine', 'tree_pine_b', 'tree_cone', 'rock_large', 'bush'],
+  factory: ['industrial_a', 'industrial_b', 'chimney', 'container', 'tank', 'water_tower', 'lamp', 'dumpster'],
+  stadium: ['grandstand', 'grandstand_covered', 'billboard', 'lamp_race', 'fence', 'flag_checkers', 'pylon'],
+  forest: ['tree_oak', 'tree_default', 'tree_pine', 'bush', 'rock_small', 'tree_suburban'],
+  docks: ['container', 'container_b', 'industrial_a', 'lamp', 'water_tower', 'dumpster', 'billboard_low'],
+  volcano: ['cliff_rock', 'rocks_castle', 'rock_large', 'rock_large_b', 'rock_small'],
+};
+
+
 function loadOne(url) {
   return new Promise((resolve) => {
     loader.load(
@@ -68,6 +95,20 @@ function prepTemplate(scene) {
         ? o.material.map((m) => m.clone())
         : o.material.clone();
     }
+  });
+  return wrap;
+}
+
+/** Env kits already sit on XZ with Y-up — no extra yaw; share materials across instances. */
+function prepEnvTemplate(scene) {
+  const wrap = new THREE.Group();
+  wrap.add(scene);
+  scene.updateMatrixWorld(true);
+  wrap.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = true;
+    o.receiveShadow = true;
+    o.frustumCulled = true;
   });
   return wrap;
 }
@@ -122,6 +163,13 @@ export function preloadAssets() {
         })
       );
     });
+    for (const id of ENV_IDS) {
+      jobs.push(
+        loadOne(`models/env/${id}.glb`).then((s) => {
+          if (s) templates.set(`env:${id}`, prepEnvTemplate(s));
+        })
+      );
+    }
     await Promise.all(jobs);
     ready = true;
     console.log('[Assets] ready, templates=', templates.size);
@@ -327,4 +375,28 @@ export function makeHybridDebrisPiece(color, size = 0.35) {
     }
   }
   return makeDebrisPiece(color, size);
+}
+
+export function hasEnv(id) {
+  return templates.has(`env:${id}`);
+}
+
+/** Clone env template; shares materials/geometry for draw-call friendliness. */
+export function cloneEnv(id) {
+  const t = templates.get(`env:${id}`);
+  if (!t) return null;
+  return t.clone(true);
+}
+
+/** First available env key from list. */
+export function cloneEnvAny(ids) {
+  for (const id of ids) {
+    const g = cloneEnv(id);
+    if (g) return g;
+  }
+  return null;
+}
+
+export function envThemeProps(theme) {
+  return THEME_ENV_PROPS[theme] || THEME_ENV_PROPS.city;
 }

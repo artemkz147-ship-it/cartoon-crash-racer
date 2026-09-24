@@ -2,6 +2,12 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { makeBillboard } from './meshes.js';
 import { getTrack } from './data/tracks.js';
+import {
+  hasEnv,
+  cloneEnv,
+  cloneEnvAny,
+  envThemeProps,
+} from './Assets.js';
 
 /**
  * Data-driven cartoon track. Builds layout from config shape + theme.
@@ -24,12 +30,15 @@ export class Track {
     this._buildWaypoints();
     this._buildSky();
     this._buildGround();
-    this._buildRoad();
-    this._buildWalls();
-    this._buildRamps();
+    this._envRoad = this._buildRoadHybrid();
+    if (!this._envRoad) this._buildRoad();
+    this._envWalls = this._buildWallsHybrid();
+    if (!this._envWalls) this._buildWalls();
+    this._buildRampsHybrid();
     if (this.cfg.shortcut && !this.cfg.derby) this._buildShortcut();
     this._buildHazards();
-    this._buildDecor();
+    this._envDecor = this._buildDecorHybrid();
+    if (!this._envDecor) this._buildDecor();
     this._buildCheckpoints();
   }
 
@@ -193,6 +202,390 @@ export class Track {
     const dy = (b.y || 0) - (a.y || 0);
     const horiz = Math.hypot(dx, dz) || 1;
     return Math.atan2(dy, horiz);
+  }
+
+
+  /** Place a cloned env mesh; returns null if missing. */
+  _placeEnv(id, x, y, z, { yaw = 0, pitch = 0, sx = 1, sy = 1, sz = 1 } = {}) {
+    const m = cloneEnv(id);
+    if (!m) return null;
+    m.position.set(x, y, z);
+    m.rotation.order = 'YXZ';
+    m.rotation.y = yaw;
+    m.rotation.x = pitch;
+    m.scale.set(sx, sy, sz);
+    this._addMesh(m);
+    return m;
+  }
+
+  /**
+   * Instance modular road GLBs along centerline + red/white curbs.
+   * Keeps a thin procedural ribbon underlay for continuous asphalt / wet look.
+   * @returns {boolean} true if GLB road used
+   */
+  _buildRoadHybrid() {
+    if (!hasEnv('road_straight')) return false;
+    const cfg = this.cfg;
+    const w = cfg.width;
+    const pts = this.waypoints;
+    const asphaltTex = this._makeAsphaltTexture();
+    const wet = !!cfg.wet;
+    const asphaltMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(cfg.asphalt),
+      map: asphaltTex,
+      roughness: wet ? 0.28 : 0.9,
+      metalness: wet ? 0.35 : 0.05,
+      flatShading: true,
+    });
+
+    if (cfg.derby || cfg.shape === 'arena') {
+      const rx = cfg.radiusX;
+      const rz = cfg.radiusZ;
+      const arena = new THREE.Mesh(
+        new THREE.CircleGeometry(Math.max(rx, rz) * 0.95, 48),
+        asphaltMat
+      );
+      arena.rotation.x = -Math.PI / 2;
+      arena.position.y = 0.02;
+      arena.scale.set(rx / Math.max(rx, rz), 1, rz / Math.max(rx, rz));
+      arena.receiveShadow = true;
+      this._addMesh(arena);
+      // Ring of jersey barriers
+      const segs = 28;
+      for (let i = 0; i < segs; i++) {
+        const a = (i / segs) * Math.PI * 2;
+        const next = ((i + 1) / segs) * Math.PI * 2;
+        const mid = (a + next) / 2;
+        const len = Math.hypot(Math.cos(next) * rx - Math.cos(a) * rx, Math.sin(next) * rz - Math.sin(a) * rz);
+        this._placeEnv(i % 2 ? 'curb_red' : 'curb_white',
+          Math.cos(mid) * rx * 0.98, 0.05, Math.sin(mid) * rz * 0.98,
+          { yaw: -mid, sx: Math.max(0.8, len / 2.2), sy: 1.1, sz: 1.1 });
+      }
+      return true;
+    }
+
+    // Continuous underlay ribbon (cheap, fills gaps between tiles)
+    this._addMesh(this._makeRibbon(pts, w * 0.5, 0.02, asphaltMat, { uvScale: 0.12 }));
+    if (wet) {
+      const reflMat = new THREE.MeshStandardMaterial({
+        color: 0x88aacc, roughness: 0.15, metalness: 0.55,
+        transparent: true, opacity: 0.22, flatShading: true,
+      });
+      this._addMesh(this._makeRibbon(pts, w * 0.42, 0.04, reflMat, { uvScale: 0.05 }));
+    }
+
+    const NATIVE = 8; // polished road_straight footprint
+    const step = 1; // every waypoint segment
+    for (let i = 0; i < pts.length; i += step) {
+      const a = pts[i];
+      const b = pts[(i + 1) % pts.length];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const len = Math.hypot(dx, dz);
+      if (len < 0.25) continue;
+      const ang = Math.atan2(dx, dz);
+      const ey = ((a.y || 0) + (b.y || 0)) * 0.5;
+      const pitch = Math.atan2((b.y || 0) - (a.y || 0), len);
+      // Prefer barrier-edged piece every other tile for visual variety
+      const roadId = (i % 3 === 0 && hasEnv('road_straight_barrier'))
+        ? 'road_straight_barrier'
+        : 'road_straight';
+      this._placeEnv(roadId,
+        (a.x + b.x) / 2, ey + 0.03, (a.z + b.z) / 2,
+        {
+          yaw: ang,
+          pitch,
+          sx: (w * 1.02) / NATIVE,
+          sy: 1,
+          sz: (len * 1.08) / NATIVE,
+        });
+    }
+
+    // Center dashed stripes (procedural — cheap readable racing line)
+    const stripeMat = new THREE.MeshStandardMaterial({
+      color: 0xffe566, emissive: 0xaa8800, emissiveIntensity: 0.15, flatShading: true,
+    });
+    for (let i = 0; i < pts.length; i += 2) {
+      const a = pts[i];
+      const b = pts[(i + 1) % pts.length];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const len = Math.hypot(dx, dz);
+      if (len < 0.1) continue;
+      const ang = Math.atan2(dx, dz);
+      const ey = ((a.y || 0) + (b.y || 0)) * 0.5;
+      const s = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.04, Math.min(2.4, len * 0.55)), stripeMat);
+      s.position.set((a.x + b.x) / 2, ey + 0.08, (a.z + b.z) / 2);
+      s.rotation.y = ang;
+      this._addMesh(s);
+    }
+
+    // Red/white kerb modules along edges
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      const n = pts[(i + 1) % pts.length];
+      const ang = Math.atan2(n.x - p.x, n.z - p.z);
+      const nx = Math.cos(ang);
+      const nz = -Math.sin(ang);
+      const segLen = Math.hypot(n.x - p.x, n.z - p.z);
+      const ey = ((p.y || 0) + (n.y || 0)) * 0.5;
+      const curbId = i % 2 === 0 ? 'curb_white' : 'curb_red';
+      const alt = hasEnv(curbId) ? curbId : (hasEnv('construction_barrier') ? 'construction_barrier' : null);
+      if (!alt) continue;
+      for (const side of [-1, 1]) {
+        this._placeEnv(alt,
+          (p.x + n.x) / 2 + nx * side * (w * 0.52),
+          ey + 0.02,
+          (p.z + n.z) / 2 + nz * side * (w * 0.52),
+          { yaw: ang, sx: Math.max(0.6, segLen / 2.2), sy: 0.55, sz: 0.7 });
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Jersey / guardrail visuals along walls; physics boxes unchanged.
+   * @returns {boolean}
+   */
+  _buildWallsHybrid() {
+    const useJersey = hasEnv('jersey_barrier') || hasEnv('guardrail');
+    if (!useJersey) return false;
+    const cfg = this.cfg;
+    const pts = this.waypoints;
+    const halfW = cfg.width * 0.55;
+    const wallMat = new THREE.MeshStandardMaterial({ color: cfg.wallA, roughness: 0.65, flatShading: true });
+    const wallMat2 = new THREE.MeshStandardMaterial({ color: cfg.wallB, roughness: 0.65, flatShading: true });
+    const topMat = new THREE.MeshStandardMaterial({
+      color: 0xffe566, emissive: 0xaa8800, emissiveIntensity: 0.25, flatShading: true,
+    });
+
+    if (cfg.derby || cfg.shape === 'arena') {
+      const segs = 36;
+      const rx = cfg.radiusX * 1.05;
+      const rz = cfg.radiusZ * 1.05;
+      for (let i = 0; i < segs; i++) {
+        const a = (i / segs) * Math.PI * 2;
+        const next = ((i + 1) / segs) * Math.PI * 2;
+        const mid = (a + next) / 2;
+        const x0 = Math.cos(a) * rx;
+        const z0 = Math.sin(a) * rz;
+        const x1 = Math.cos(next) * rx;
+        const z1 = Math.sin(next) * rz;
+        const len = Math.hypot(x1 - x0, z1 - z0) * 1.05;
+        const h = 3.2 + (cfg.banks ? Math.abs(Math.sin(mid * 2)) * 1.2 : 0);
+        const id = i % 3 === 0 && hasEnv('guardrail_double')
+          ? 'guardrail_double'
+          : (hasEnv('jersey_barrier') ? 'jersey_barrier' : 'guardrail');
+        this._placeEnv(id,
+          Math.cos(mid) * rx, 0.05, Math.sin(mid) * rz,
+          { yaw: -mid, sx: len / 2.8, sy: h / 0.4, sz: 2.2 });
+        const body = new CANNON.Body({ mass: 0 });
+        body.addShape(new CANNON.Box(new CANNON.Vec3(len / 2, h / 2, 0.6)));
+        body.position.set(Math.cos(mid) * rx, h / 2, Math.sin(mid) * rz);
+        body.quaternion.setFromEuler(0, -mid, 0);
+        this._addBody(body);
+      }
+      return true;
+    }
+
+    for (let side of [-1, 1]) {
+      for (let i = 0; i < pts.length; i++) {
+        if (side === -1 && cfg.shortcut && i > pts.length * 0.45 && i < pts.length * 0.55) continue;
+        const a = pts[i];
+        const b = pts[(i + 1) % pts.length];
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        const len = Math.hypot(dx, dz) * 1.06;
+        const ang = Math.atan2(dx, dz);
+        const nx = Math.cos(ang);
+        const nz = -Math.sin(ang);
+        const elev = ((a.y || 0) + (b.y || 0)) * 0.5;
+        const midX = (a.x + b.x) / 2 + nx * side * halfW;
+        const midZ = (a.z + b.z) / 2 + nz * side * halfW;
+        const bankH = 2.4 + (cfg.banks ? Math.abs(Math.sin(i * 0.3)) * 1.1 : 0);
+        const id = (i + (side > 0 ? 0 : 1)) % 4 === 0 && hasEnv('guardrail')
+          ? 'guardrail'
+          : (hasEnv('jersey_barrier') ? 'jersey_barrier' : 'guardrail_double');
+        // jersey native height ~0.4 → scale sy to bankH
+        this._placeEnv(id, midX, elev + 0.05, midZ, {
+          yaw: ang,
+          sx: len / 2.9,
+          sy: bankH / 0.4,
+          sz: 2.0,
+        });
+        // Tint stripe cap (small procedural) for theme color pops
+        if (i % 2 === 0) {
+          const cap = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.12, len * 0.9), i % 4 ? wallMat : topMat);
+          cap.position.set(midX, elev + bankH + 0.08, midZ);
+          cap.rotation.y = ang;
+          this._addMesh(cap);
+        }
+      }
+      // Physics every 2 segs (same as procedural)
+      for (let i = 0; i < pts.length; i += 2) {
+        if (side === -1 && cfg.shortcut && i > pts.length * 0.45 && i < pts.length * 0.55) continue;
+        const a = pts[i];
+        const c = pts[(i + 2) % pts.length];
+        const mid = pts[(i + 1) % pts.length];
+        const dx = c.x - a.x;
+        const dz = c.z - a.z;
+        const len = Math.hypot(dx, dz) * 1.08;
+        if (len < 0.5) continue;
+        const ang = Math.atan2(dx, dz);
+        const nx = Math.cos(ang);
+        const nz = -Math.sin(ang);
+        const elev = ((a.y || 0) + (mid.y || 0) + (c.y || 0)) / 3;
+        const midX = (a.x + c.x) / 2 + nx * side * halfW;
+        const midZ = (a.z + c.z) / 2 + nz * side * halfW;
+        const bankH = 2.6 + (cfg.banks ? Math.abs(Math.sin(i * 0.3)) * 1.0 : 0);
+        const body = new CANNON.Body({ mass: 0 });
+        body.addShape(new CANNON.Box(new CANNON.Vec3(0.65, bankH / 2, len / 2)));
+        body.position.set(midX, elev + bankH / 2, midZ);
+        body.quaternion.setFromEuler(0, ang, 0);
+        this._addBody(body);
+      }
+    }
+
+    if (cfg.shape !== 'figure8' && !cfg.derby) {
+      const islandMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(cfg.groundA), roughness: 0.85, flatShading: true,
+      });
+      const island = new THREE.Mesh(
+        new THREE.CylinderGeometry(this.innerR * 0.85, this.innerR * 0.85, 0.5, 24),
+        islandMat
+      );
+      island.position.y = 0.2;
+      this._addMesh(island);
+    }
+    return true;
+  }
+
+  _buildRampsHybrid() {
+    const cfg = this.cfg;
+    const count = cfg.ramps || 0;
+    if (!count) return;
+    const hasRamp = hasEnv('ramp') || hasEnv('road_ramp');
+    if (!hasRamp) {
+      this._buildRamps();
+      return;
+    }
+    const pts = this.waypoints;
+    for (let r = 0; r < count; r++) {
+      const idx = Math.floor(((r + 0.5) / count) * pts.length) % pts.length;
+      const p = pts[idx];
+      const n = pts[(idx + 1) % pts.length];
+      const ang = Math.atan2(n.x - p.x, n.z - p.z);
+      const fx = Math.sin(ang);
+      const fz = Math.cos(ang);
+      const ey = p.y || 0;
+      const id = hasEnv('ramp') ? 'ramp' : 'road_ramp';
+      this._placeEnv(id, p.x, ey, p.z, { yaw: ang, sx: 1.6, sy: 1.4, sz: 1.6 });
+      const body = new CANNON.Body({ mass: 0 });
+      body.addShape(new CANNON.Box(new CANNON.Vec3(2.3, 0.22, 3.1)));
+      body.position.set(p.x, ey + 0.75, p.z);
+      body.quaternion.setFromEuler(-0.32, ang, 0);
+      this._addBody(body);
+      this.ramps.push({ x: p.x, z: p.z, y: ey, fx, fz, boost: 14 });
+    }
+  }
+
+  /**
+   * Theme scenery from Kenney kits. Falls back to procedural _buildDecor.
+   * @returns {boolean}
+   */
+  _buildDecorHybrid() {
+    const props = envThemeProps(this.cfg.theme);
+    const any = props.some((id) => hasEnv(id));
+    if (!any) return false;
+    const cfg = this.cfg;
+
+    // Clouds stay procedural (cheap sky fluff)
+    const cloudMat = new THREE.MeshStandardMaterial({
+      color: cfg.theme === 'volcano' ? 0x554444 : cfg.theme === 'factory' ? 0x888899 : 0xffffff,
+      roughness: 1, flatShading: true, transparent: true,
+      opacity: cfg.theme === 'volcano' ? 0.7 : 0.9,
+    });
+    const cloudN = cfg.theme === 'snow' ? 10 : 8;
+    for (let i = 0; i < cloudN; i++) {
+      const cloud = new THREE.Group();
+      for (let j = 0; j < 4; j++) {
+        const p = new THREE.Mesh(new THREE.BoxGeometry(2.5 + Math.random() * 2.5, 1.1, 1.8), cloudMat);
+        p.position.set(j * 1.8 - 2.2, Math.random() * 0.6, (Math.random() - 0.5) * 1.8);
+        cloud.add(p);
+      }
+      const a = (i / cloudN) * Math.PI * 2;
+      cloud.position.set(Math.cos(a) * (50 + (i % 3) * 6), 12 + Math.random() * 10, Math.sin(a) * (50 + (i % 3) * 6));
+      this._addMesh(cloud);
+    }
+
+    // Ring of theme props (buildings / trees / rocks…)
+    const n = cfg.derby ? 14 : 22;
+    const baseR = 52;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + 0.07;
+      const r = baseR + (i % 5) * 3.5 + (i % 3) * 1.2;
+      const id = props[i % props.length];
+      if (!hasEnv(id)) continue;
+      const scale = 0.85 + (i % 4) * 0.12;
+      const yaw = -a + Math.PI + (i % 5) * 0.15;
+      this._placeEnv(id, Math.cos(a) * r, 0, Math.sin(a) * r, {
+        yaw, sx: scale, sy: scale, sz: scale,
+      });
+    }
+
+    // Inner scatter (fewer, for depth without draw-call blowup)
+    const innerN = cfg.derby ? 6 : 10;
+    for (let i = 0; i < innerN; i++) {
+      const a = (i / innerN) * Math.PI * 2 + 0.4;
+      const r = 38 + (i % 3) * 2.5;
+      const id = props[(i * 3) % props.length];
+      if (!hasEnv(id)) continue;
+      // Skip tall buildings too close to track
+      if (id.startsWith('building') || id === 'skyscraper' || id.startsWith('industrial') || id.startsWith('grandstand')) {
+        continue;
+      }
+      this._placeEnv(id, Math.cos(a) * r, 0, Math.sin(a) * r, {
+        yaw: a, sx: 0.7, sy: 0.7, sz: 0.7,
+      });
+    }
+
+    // Trackside lamps / billboards
+    const lampId = hasEnv('lamp') ? 'lamp' : (hasEnv('lamp_race') ? 'lamp_race' : null);
+    if (lampId && (cfg.night || cfg.theme === 'city' || cfg.theme === 'docks' || cfg.theme === 'stadium')) {
+      const pts = this.waypoints;
+      for (let i = 0; i < pts.length; i += 4) {
+        const p = pts[i];
+        const n2 = pts[(i + 1) % pts.length];
+        const ang = Math.atan2(n2.x - p.x, n2.z - p.z);
+        const nx = Math.cos(ang);
+        const nz = -Math.sin(ang);
+        const side = (i / 4) % 2 ? 1 : -1;
+        this._placeEnv(lampId,
+          p.x + nx * side * (cfg.width * 0.72),
+          p.y || 0,
+          p.z + nz * side * (cfg.width * 0.72),
+          { yaw: ang, sx: 1, sy: 1, sz: 1 });
+      }
+    }
+
+    if (hasEnv('billboard')) {
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + 0.25;
+        this._placeEnv(i % 2 ? 'billboard' : (hasEnv('billboard_low') ? 'billboard_low' : 'billboard'),
+          Math.cos(a) * 48, 0, Math.sin(a) * 48,
+          { yaw: -a + Math.PI, sx: 1.1, sy: 1.1, sz: 1.1 });
+      }
+    } else {
+      const colors = [0xff4466, 0x44aaff, 0xffee44, 0x66ff99, 0xff88cc, 0xff9944];
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2 + 0.2;
+        const bb = makeBillboard(5.5, 3.2, colors[i % colors.length]);
+        bb.position.set(Math.cos(a) * 48, 4.2, Math.sin(a) * 48);
+        bb.lookAt(0, 4.2, 0);
+        this._addMesh(bb);
+      }
+    }
+    return true;
   }
 
   _buildSky() {
