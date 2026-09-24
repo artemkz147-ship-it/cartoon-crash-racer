@@ -185,3 +185,13 @@ html, body, #app {
 #start-screen.hidden {
   display: none;
 }
+
+/* Polish: subtle HUD pulse on low health */
+.bar .fill.health.low {
+  animation: pulse-health 0.6s ease-in-out infinite alternate;
+}
+
+@keyframes pulse-health {
+  from { filter: brightness(1); }
+  to { filter: brightness(1.35); }
+}

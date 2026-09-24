@@ -33,6 +33,7 @@ export class HUD {
     const ar = Math.max(0, player.armor);
     this.healthBar.style.width = `${hp}%`;
     this.armorBar.style.width = `${ar}%`;
+    this.healthBar.classList.toggle('low', hp > 0 && hp <= 30);
     this.healthVal.textContent = String(Math.round(hp));
     this.armorVal.textContent = String(Math.round(ar));
 
